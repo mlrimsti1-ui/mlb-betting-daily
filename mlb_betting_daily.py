@@ -49,4 +49,4 @@ def run_model():
     
     # Call multiple markets: Moneyline (h2h) and Totals
     odds_url = f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds"
-    games = requests.get(odds_url, params={"apiKey": ODDS
+    games = requests.get(odds_url, params={"apiKey": ODDS)
