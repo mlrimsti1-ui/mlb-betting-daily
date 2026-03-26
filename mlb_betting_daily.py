@@ -10,17 +10,69 @@ ODDS_API_KEY = "4bdba5b98d90cc609eeadf39b1c0be2d"
 WEATHER_API_KEY = "40b796258caa0b4933609f73c70860b9"
 
 STADIUM_DATA = {
-    "NYM": {"lat": 40.757, "lon": -73.846, "roof": "open", "factor": 0.94},
-    "CHC": {"lat": 41.948, "lon": -87.656, "roof": "open", "factor": 1.05},
-    "LAD": {"lat": 34.074, "lon": -118.240, "roof": "open", "factor": 1.02},
-    "SEA": {"lat": 47.591, "lon": -122.332, "roof": "retractable", "factor": 0.91}
+    "ARI": {"lat": 33.445, "lon": -112.067, "roof": "retractable", "factor": 1.02}, # Chase Field
+    "ATL": {"lat": 33.891, "lon": -84.468, "roof": "open", "factor": 0.99},        # Truist Park
+    "BAL": {"lat": 39.284, "lon": -76.622, "roof": "open", "factor": 1.01},        # Oriole Park
+    "BOS": {"lat": 42.346, "lon": -71.098, "roof": "open", "factor": 1.09},        # Fenway Park
+    "CHC": {"lat": 41.948, "lon": -87.656, "roof": "open", "factor": 1.00},        # Wrigley Field
+    "CHW": {"lat": 41.830, "lon": -87.634, "roof": "open", "factor": 0.99},        # Guaranteed Rate Field
+    "CIN": {"lat": 39.097, "lon": -84.506, "roof": "open", "factor": 1.13},        # Great American Ball Park
+    "CLE": {"lat": 41.496, "lon": -81.685, "roof": "open", "factor": 1.01},        # Progressive Field
+    "COL": {"lat": 39.756, "lon": -104.994, "roof": "open", "factor": 1.34},       # Coors Field
+    "DET": {"lat": 42.339, "lon": -83.049, "roof": "open", "factor": 0.97},        # Comerica Park
+    "HOU": {"lat": 29.757, "lon": -95.356, "roof": "retractable", "factor": 0.96}, # Minute Maid Park
+    "KCR": {"lat": 39.052, "lon": -94.480, "roof": "open", "factor": 1.02},        # Kauffman Stadium
+    "LAA": {"lat": 33.800, "lon": -117.883, "roof": "open", "factor": 1.02},       # Angel Stadium
+    "LAD": {"lat": 34.074, "lon": -118.240, "roof": "open", "factor": 1.02},       # Dodger Stadium
+    "MIA": {"lat": 25.778, "lon": -80.220, "roof": "retractable", "factor": 0.91}, # loanDepot park
+    "MIL": {"lat": 43.028, "lon": -87.971, "roof": "retractable", "factor": 1.00}, # American Family Field
+    "MIN": {"lat": 44.982, "lon": -93.278, "roof": "open", "factor": 1.01},        # Target Field
+    "NYM": {"lat": 40.757, "lon": -73.846, "roof": "open", "factor": 0.94},        # Citi Field
+    "NYY": {"lat": 40.830, "lon": -73.926, "roof": "open", "factor": 1.01},        # Yankee Stadium
+    "OAK": {"lat": 38.581, "lon": -121.505, "roof": "open", "factor": 1.03},       # Sutter Health Park (Sac)
+    "PHI": {"lat": 39.906, "lon": -75.166, "roof": "open", "factor": 0.99},        # Citizens Bank Park
+    "PIT": {"lat": 40.447, "lon": -80.006, "roof": "open", "factor": 0.96},        # PNC Park
+    "SDP": {"lat": 32.708, "lon": -117.157, "roof": "open", "factor": 0.92},       # Petco Park
+    "SEA": {"lat": 47.591, "lon": -122.332, "roof": "retractable", "factor": 0.91}, # T-Mobile Park
+    "SFG": {"lat": 37.778, "lon": -122.390, "roof": "open", "factor": 0.94},        # Oracle Park
+    "STL": {"lat": 38.623, "lon": -90.193, "roof": "open", "factor": 0.96},        # Busch Stadium
+    "TBR": {"lat": 27.768, "lon": -82.653, "roof": "dome", "factor": 0.91},        # Tropicana Field
+    "TEX": {"lat": 32.751, "lon": -97.083, "roof": "retractable", "factor": 1.00}, # Globe Life Field
+    "TOR": {"lat": 43.641, "lon": -79.389, "roof": "retractable", "factor": 1.02}, # Rogers Centre
+    "WSN": {"lat": 38.873, "lon": -77.007, "roof": "open", "factor": 0.97}         # Nationals Park
 }
 
 TEAM_MAP = {
-    "Pittsburgh Pirates": "PIT", "New York Mets": "NYM", "Chicago Cubs": "CHC", 
-    "Arizona Diamondbacks": "ARI", "Los Angeles Dodgers": "LAD", "Seattle Mariners": "SEA",
-    "Milwaukee Brewers": "MIL", "Washington Nationals": "WSN", "Minnesota Twins": "MIN",
-    "Baltimore Orioles": "BAL", "Detroit Tigers": "DET", "San Diego Padres": "SDP"
+    "New York Yankees": "NYY",
+    "Boston Red Sox": "BOS",
+    "Toronto Blue Jays": "TOR",
+    "Baltimore Orioles": "BAL",
+    "Tampa Bay Rays": "TBR",
+    "Chicago White Sox": "CWS",
+    "Cleveland Guardians": "CLE",
+    "Detroit Tigers": "DET",
+    "Kansas City Royals": "KCR",
+    "Minnesota Twins": "MIN",
+    "Houston Astros": "HOU",
+    "Los Angeles Angels": "LAA",
+    "Oakland Athletics": "OAK",
+    "Seattle Mariners": "SEA",
+    "Texas Rangers": "TEX",
+    "Atlanta Braves": "ATL",
+    "Miami Marlins": "MIA",
+    "New York Mets": "NYM",
+    "Philadelphia Phillies": "PHI",
+    "Washington Nationals": "WSN",
+    "Chicago Cubs": "CHC",
+    "Cincinnati Reds": "CIN",
+    "Milwaukee Brewers": "MIL",
+    "Pittsburgh Pirates": "PIT",
+    "St. Louis Cardinals": "STL",
+    "Arizona Diamondbacks": "ARI",
+    "Colorado Rockies": "COL",
+    "Los Angeles Dodgers": "LAD",
+    "San Diego Padres": "SDP",
+    "San Francisco Giants": "SFG"
 }
 
 # ========================= ENGINES =========================
