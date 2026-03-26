@@ -3,17 +3,22 @@ name: Daily MLB Betting Report
 on:
   schedule:
     - cron: '0 13 * * *'     # 8:00 AM Chicago time (CDT)
-  workflow_dispatch:         # Allows manual "Run workflow" button
+  workflow_dispatch:
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
+    
+    # Force Node.js 24 immediately (removes the warning)
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4     # v4 is still safe and widely used
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v6   # ← Updated from v5 to v6 (Node 24 compatible)
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
