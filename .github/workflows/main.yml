@@ -9,13 +9,14 @@ jobs:
   run-script:
     runs-on: ubuntu-latest
 
-    # This forces Node.js 24 and usually silences the warning
+    # Helps suppress the warning (even if GitHub's annotation is buggy)
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+            ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4   # or try v5 below if you want
+        uses: actions/checkout@v5     # ← Changed to v5 (Node 24 native)
 
       - name: Set up Python
         uses: actions/setup-python@v6
