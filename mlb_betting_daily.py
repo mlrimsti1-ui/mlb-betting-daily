@@ -130,7 +130,7 @@ def main():
             # 2. Moneyline & NRFI
             ml_lean = h_f if h_p['FIP'] < a_p['FIP'] - 0.4 else a_f if a_p['FIP'] < h_p['FIP'] - 0.4 else "TOSS-UP"
             avg_k_pot = (h_p['K%'] + a_p['K%'] + h_b['K%'] + a_b['K%']) / 4
-            nrfi = "STRONG" if avg_k_pot > 0.25 and w_mult < 1.0 else "NEUTRAL"
+            nrfi = "STRONG" if avg_k_pot > 0.22 and w_mult < 1.05 else "NEUTRAL"
 
             # 3. Edge Detection (Comparing to Sportsbook)
             total_action = "Neutral"
