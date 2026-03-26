@@ -77,4 +77,4 @@ def run_mlb_betting_algorithm():
     for game in games:
         home_full = game.get('home_team')
         away_full = game.get('away_team')
-        home_key = TEAM_MAP.get(home_full, home_full
+        home_key = TEAM_MAP.get(home_full, home_full)
