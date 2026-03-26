@@ -9,13 +9,13 @@ jobs:
   run-script:
     runs-on: ubuntu-latest
     
-    # Force Node.js 24 immediately (removes the warning)
+    # This forces the runner to use Node.js 24 immediately and silences the warning
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4   # Keep v4 for maximum compatibility
 
       - name: Set up Python
         uses: actions/setup-python@v6
