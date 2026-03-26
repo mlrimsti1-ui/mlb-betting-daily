@@ -1,46 +1,32 @@
 import requests
 from datetime import datetime
 import pybaseball as pyb
+import pandas as pd
+import numpy as np
 
 # ========================= CONFIG =========================
-TELEGRAM_TOKEN = "8216569304:AAFrWNUFtDFeUwS4TylFULp_ZkEvNakd8b8"      # GitHub secret
-TELEGRAM_CHAT_ID = "8779455773"      # GitHub secret
-ODDS_API_KEY = "4bdba5b98d90cc609eeadf39b1c0be2d"     # GitHub secret
+TELEGRAM_TOKEN = "8216569304:AAFrWNUFtDFeUwS4TylFULp_ZkEvNakd8b8"
+TELEGRAM_CHAT_ID = "8779455773"
+ODDS_API_KEY = "4bdba5b98d90cc609eeadf39b1c0be2d"
 
-CURRENT_SEASON = datetime.now().year
+# Use 2025 data for the first 14 days of the 2026 season to ensure accuracy
+CURRENT_DATE = datetime.now()
+if CURRENT_DATE.month == 3 and CURRENT_DATE.day < 31:
+    DATA_YEAR = 2025 
+else:
+    DATA_YEAR = 2026
 
-# Simple team name mapping (Odds API full name → pybaseball-friendly key)
 TEAM_MAP = {
-    "New York Yankees": "NYY",
-    "Boston Red Sox": "BOS",
-    "Toronto Blue Jays": "TOR",
-    "Baltimore Orioles": "BAL",
-    "Tampa Bay Rays": "TBR",
-    "Chicago White Sox": "CWS",
-    "Cleveland Guardians": "CLE",
-    "Detroit Tigers": "DET",
-    "Kansas City Royals": "KCR",
-    "Minnesota Twins": "MIN",
-    "Houston Astros": "HOU",
-    "Los Angeles Angels": "LAA",
-    "Oakland Athletics": "OAK",
-    "Seattle Mariners": "SEA",
-    "Texas Rangers": "TEX",
-    "Atlanta Braves": "ATL",
-    "Miami Marlins": "MIA",
-    "New York Mets": "NYM",
-    "Philadelphia Phillies": "PHI",
-    "Washington Nationals": "WSN",
-    "Chicago Cubs": "CHC",
-    "Cincinnati Reds": "CIN",
-    "Milwaukee Brewers": "MIL",
-    "Pittsburgh Pirates": "PIT",
-    "St. Louis Cardinals": "STL",
-    "Arizona Diamondbacks": "ARI",
-    "Colorado Rockies": "COL",
-    "Los Angeles Dodgers": "LAD",
-    "San Diego Padres": "SDP",
-    "San Francisco Giants": "SFG"
+    "New York Yankees": "NYY", "Boston Red Sox": "BOS", "Toronto Blue Jays": "TOR",
+    "Baltimore Orioles": "BAL", "Tampa Bay Rays": "TBR", "Chicago White Sox": "CHW",
+    "Cleveland Guardians": "CLE", "Detroit Tigers": "DET", "Kansas City Royals": "KCR",
+    "Minnesota Twins": "MIN", "Houston Astros": "HOU", "Los Angeles Angels": "LAA",
+    "Oakland Athletics": "OAK", "Seattle Mariners": "SEA", "Texas Rangers": "TEX",
+    "Atlanta Braves": "ATL", "Miami Marlins": "MIA", "New York Mets": "NYM",
+    "Philadelphia Phillies": "PHI", "Washington Nationals": "WSN", "Chicago Cubs": "CHC",
+    "Cincinnati Reds": "CIN", "Milwaukee Brewers": "MIL", "Pittsburgh Pirates": "PIT",
+    "St. Louis Cardinals": "STL", "Arizona Diamondbacks": "ARI", "Colorado Rockies": "COL",
+    "Los Angeles Dodgers": "LAD", "San Diego Padres": "SDP", "San Francisco Giants": "SFG"
 }
 
 # ========================= FETCH DATA =========================
@@ -49,7 +35,7 @@ def fetch_odds_api():
     params = {
         "apiKey": ODDS_API_KEY,
         "regions": "us",
-        "markets": "h2h,spreads,totals",
+        "markets": "h2h,totals",
         "oddsFormat": "american"
     }
     try:
@@ -60,13 +46,21 @@ def fetch_odds_api():
         print(f"⚠️ Odds API error: {e}")
         return []
 
-def fetch_pybaseball_team_stats():
+def fetch_predictive_metrics():
+    """
+    Fetches FIP (Predictive Pitching) and wOBA (Predictive Hitting)
+    """
     try:
-        batting = pyb.batting_stats(CURRENT_SEASON, CURRENT_SEASON)
-        pitching = pyb.pitching_stats(CURRENT_SEASON, CURRENT_SEASON)
+        # Pulling season-level stats for the designated DATA_YEAR
+        batting = pyb.batting_stats(DATA_YEAR)
+        pitching = pyb.pitching_stats(DATA_YEAR)
         
-        batting_team = batting.groupby('Team')['OPS'].mean().to_dict()
-        pitching_team = pitching.groupby('Team')['ERA'].mean().to_dict()
+        # Mapping metrics to teams
+        # wOBA (Weighted On-Base Average) is the gold standard for offense
+        batting_team = batting.groupby('Team')['wOBA'].mean().to_dict()
+        
+        # FIP (Fielding Independent Pitching) isolates pitcher skill from defense/luck
+        pitching_team = pitching.groupby('Team')['FIP'].mean().to_dict()
         
         return batting_team, pitching_team
     except Exception as e:
@@ -75,97 +69,69 @@ def fetch_pybaseball_team_stats():
 
 # ========================= MAIN ALGORITHM =========================
 def run_mlb_betting_algorithm():
-    report = f"⚾ MLB Betting Report – {datetime.now().strftime('%B %d, %Y')} (Chicago time)\n\n"
+    report = f"⚾ <b>MLB Pro-Model Report</b> – {datetime.now().strftime('%B %d, %Y')}\n"
+    report += f"<i>Using {DATA_YEAR} baseline data for Opening Week accuracy</i>\n\n"
     
     games = fetch_odds_api()
-    batting_team, pitching_team = fetch_pybaseball_team_stats()
+    batting_team, pitching_team = fetch_predictive_metrics()
 
     if not games:
-        report += "⚠️ No games found or Odds API issue today.\n"
-        return report
+        return "⚠️ No games found or API error."
 
-    report += f"📊 {len(games)} games today\n\n"
-
-    for game in games[:12]:
-        home_full = game.get('home_team', 'N/A')
-        away_full = game.get('away_team', 'N/A')
-        commence = game.get('commence_time', '')[:16]
-
-        # Map to pybaseball keys
+    for game in games[:15]:  # Process full slate
+        home_full = game.get('home_team')
+        away_full = game.get('away_team')
         home_key = TEAM_MAP.get(home_full, home_full)
         away_key = TEAM_MAP.get(away_full, away_full)
 
-        h_era = pitching_team.get(home_key, 4.50)
-        a_era = pitching_team.get(away_key, 4.50)
-        h_ops = batting_team.get(home_key, 0.720)
-        a_ops = batting_team.get(away_key, 0.720)
+        # Get Predictive Stats (Defaults to league average if missing)
+        h_fip = pitching_team.get(home_key, 4.20)
+        a_fip = pitching_team.get(away_key, 4.20)
+        h_woba = batting_team.get(home_key, 0.320)
+        a_woba = batting_team.get(away_key, 0.320)
 
-        # Core logic: Pitching + Hitting + Environment (home advantage)
-        projected_total = round(((h_era + a_era) / 2) * 0.9 + (h_ops + a_ops) * 4.5, 1)
+        # --- ALGORITHM LOGIC ---
+        # 1. Projected Total: Weighted FIP + wOBA scale
+        projected_total = round(((h_fip + a_fip) / 2) * 0.85 + (h_woba + a_woba) * 10, 1)
         
-        home_win_prob = 0.5 + (a_era - h_era) * 0.12 + (h_ops - a_ops) * 0.65 + 0.04
+        # 2. Win Probability: FIP delta + wOBA delta + Home Field Advantage (4%)
+        home_win_prob = 0.5 + (a_fip - h_fip) * 0.08 + (h_woba - a_woba) * 1.2 + 0.04
         home_win_prob = max(0.05, min(0.95, home_win_prob))
 
-        # Parse odds
+        # Parse Bookie Odds
         ml_home = ml_away = total_line = None
-        book = game.get('bookmakers', [{}])[0]
-        for market in book.get('markets', []):
-            if market.get('key') == 'h2h' and market.get('outcomes'):
-                outcomes = market['outcomes']
-                if len(outcomes) > 0:
-                    ml_home = outcomes[0].get('price')
-                if len(outcomes) > 1:
-                    ml_away = outcomes[1].get('price')
-            elif market.get('key') == 'totals' and market.get('outcomes'):
-                total_line = market['outcomes'][0].get('point')
+        bookmakers = game.get('bookmakers', [])
+        if bookmakers:
+            markets = bookmakers[0].get('markets', [])
+            for m in markets:
+                if m['key'] == 'h2h':
+                    for outcome in m['outcomes']:
+                        if outcome['name'] == home_full: ml_home = outcome['price']
+                        else: ml_away = outcome['price']
+                elif m['key'] == 'totals':
+                    total_line = m['outcomes'][0].get('point')
 
-        # Value bets (5%+ edge)
+        # --- VALUE DETECTION ---
         value_bets = []
         if ml_home:
-            implied_prob = (100 / abs(ml_home)) if ml_home < 0 else (abs(ml_home) / (abs(ml_home) + 100))
-            edge = (home_win_prob - implied_prob) * 100
+            # Calculate Implied Probability from American Odds
+            implied = (abs(ml_home) / (abs(ml_home) + 100)) if ml_home < 0 else (100 / (ml_home + 100))
+            edge = (home_win_prob - implied) * 100
             if edge > 5:
-                value_bets.append(f"✅ ML: Bet {home_full} ({ml_home}) — +{edge:.1f}% edge")
-        
+                value_bets.append(f"💰 <b>ML: {home_full}</b> ({ml_home}) | Edge: +{edge:.1f}%")
+
         if total_line:
-            ou_recommend = "OVER" if projected_total > total_line + 0.3 else "UNDER" if projected_total < total_line - 0.3 else None
-            if ou_recommend:
-                value_bets.append(f"✅ O/U {total_line}: {ou_recommend} (proj {projected_total})")
+            diff = projected_total - total_line
+            if diff > 0.6:
+                value_bets.append(f"🔥 <b>OVER {total_line}</b> (Proj: {projected_total})")
+            elif diff < -0.6:
+                value_bets.append(f"🧊 <b>UNDER {total_line}</b> (Proj: {projected_total})")
 
-        # Output
-        report += f"**{away_full} @ {home_full}** — {commence}\n"
-        report += f"   Pitching: {home_full} ERA≈{h_era:.2f} | {away_full} ERA≈{a_era:.2f}\n"
-        report += f"   Hitting:  {home_full} OPS≈{h_ops:.3f} | {away_full} OPS≈{a_ops:.3f}\n"
-        report += f"   Proj Total: {projected_total} runs | Home win ≈{home_win_prob:.1%}\n"
-        
+        # --- FORMAT REPORT ---
+        report += f"<b>{away_full} @ {home_full}</b>\n"
+        report += f"Proj: {projected_total} runs | Home Win: {home_win_prob:.1%}\n"
         if value_bets:
-            report += "   🔥 Value bets:\n" + "\n".join([f"      {v}" for v in value_bets]) + "\n"
+            report += "\n".join(value_bets) + "\n"
         else:
-            report += "   No strong value detected\n"
-        report += "\n"
-
-    report += "📌 Algorithm: Pitching (ERA) + Hitting (OPS) + Environment (home advantage)\n"
-    report += "✅ Powered by The Odds API + pybaseball. Bet responsibly! ⚾"
-    return report
-
-# ========================= SEND TO TELEGRAM =========================
-def send_telegram(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
-    try:
-        requests.post(url, json=payload, timeout=10)
-    except Exception as e:
-        print(f"Telegram send failed: {e}")
-
-# ========================= MAIN =========================
-if __name__ == "__main__":
-    try:
-        report = run_mlb_betting_algorithm()
-    except Exception as e:
-        import traceback
-        error_msg = f"⚠️ Script crashed!\nError: {type(e).__name__}: {e}\n\n{traceback.format_exc()}"
-        report = f"MLB Betting Report – {datetime.now().strftime('%B %d, %Y')}\n\n{error_msg}"
-        print(error_msg)
-    
-    send_telegram(report)
-    print("✅ Daily MLB script finished")
+            report += "No significant edge detected.\n"
+        report += "──────────────
