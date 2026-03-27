@@ -9,9 +9,14 @@ TELEGRAM_CHAT_ID = "8779455773"
 ODDS_API_KEY = "4bdba5b98d90cc609eeadf39b1c0be2d"
 WEATHER_API_KEY = "40b796258caa0b4933609f73c70860b9"
 
+# v11.0 TUNING
+BULLPEN_TAX = 1.05
+INDOOR_FLOOR = 1.03
+POWER_TEAMS = ["LAD", "ATL", "NYY"]
+
 STADIUM_DATA = {
     "ARI": {"lat": 33.445, "lon": -112.067, "roof": "retractable", "factor": 1.02}, # Chase Field
-    "ATL": {"lat": 33.891, "lon": -84.468, "roof": "open", "factor": 0.99},        # Truist Park
+    "ATL": {"lat": 33.891, "lon": -84.468, "roof": "open", "factor": 1.03},        # Truist Park
     "BAL": {"lat": 39.284, "lon": -76.622, "roof": "open", "factor": 1.01},        # Oriole Park
     "BOS": {"lat": 42.346, "lon": -71.098, "roof": "open", "factor": 1.09},        # Fenway Park
     "CHC": {"lat": 41.948, "lon": -87.656, "roof": "open", "factor": 1.00},        # Wrigley Field
@@ -20,25 +25,25 @@ STADIUM_DATA = {
     "CLE": {"lat": 41.496, "lon": -81.685, "roof": "open", "factor": 1.01},        # Progressive Field
     "COL": {"lat": 39.756, "lon": -104.994, "roof": "open", "factor": 1.34},       # Coors Field
     "DET": {"lat": 42.339, "lon": -83.049, "roof": "open", "factor": 0.97},        # Comerica Park
-    "HOU": {"lat": 29.757, "lon": -95.356, "roof": "retractable", "factor": 0.96}, # Minute Maid Park
+    "HOU": {"lat": 29.757, "lon": -95.356, "roof": "retractable", "factor": 1.01}, # Minute Maid Park
     "KCR": {"lat": 39.052, "lon": -94.480, "roof": "open", "factor": 1.02},        # Kauffman Stadium
     "LAA": {"lat": 33.800, "lon": -117.883, "roof": "open", "factor": 1.02},       # Angel Stadium
-    "LAD": {"lat": 34.074, "lon": -118.240, "roof": "open", "factor": 1.02},       # Dodger Stadium
-    "MIA": {"lat": 25.778, "lon": -80.220, "roof": "retractable", "factor": 0.91}, # loanDepot park
+    "LAD": {"lat": 34.074, "lon": -118.240, "roof": "open", "factor": 1.05},       # Dodger Stadium
+    "MIA": {"lat": 25.778, "lon": -80.220, "roof": "retractable", "factor": 0.96}, # loanDepot park
     "MIL": {"lat": 43.028, "lon": -87.971, "roof": "retractable", "factor": 1.00}, # American Family Field
     "MIN": {"lat": 44.982, "lon": -93.278, "roof": "open", "factor": 1.01},        # Target Field
     "NYM": {"lat": 40.757, "lon": -73.846, "roof": "open", "factor": 0.94},        # Citi Field
-    "NYY": {"lat": 40.830, "lon": -73.926, "roof": "open", "factor": 1.01},        # Yankee Stadium
+    "NYY": {"lat": 40.830, "lon": -73.926, "roof": "open", "factor": 1.02},        # Yankee Stadium
     "OAK": {"lat": 38.581, "lon": -121.505, "roof": "open", "factor": 1.03},       # Sutter Health Park (Sac)
-    "PHI": {"lat": 39.906, "lon": -75.166, "roof": "open", "factor": 0.99},        # Citizens Bank Park
+    "PHI": {"lat": 39.906, "lon": -75.166, "roof": "open", "factor": 1.03},        # Citizens Bank Park
     "PIT": {"lat": 40.447, "lon": -80.006, "roof": "open", "factor": 0.96},        # PNC Park
     "SDP": {"lat": 32.708, "lon": -117.157, "roof": "open", "factor": 0.92},       # Petco Park
     "SEA": {"lat": 47.591, "lon": -122.332, "roof": "retractable", "factor": 0.91}, # T-Mobile Park
     "SFG": {"lat": 37.778, "lon": -122.390, "roof": "open", "factor": 0.94},        # Oracle Park
     "STL": {"lat": 38.623, "lon": -90.193, "roof": "open", "factor": 0.96},        # Busch Stadium
-    "TBR": {"lat": 27.768, "lon": -82.653, "roof": "dome", "factor": 0.91},        # Tropicana Field
+    "TBR": {"lat": 27.768, "lon": -82.653, "roof": "dome", "factor": 0.95},        # Tropicana Field
     "TEX": {"lat": 32.751, "lon": -97.083, "roof": "retractable", "factor": 1.00}, # Globe Life Field
-    "TOR": {"lat": 43.641, "lon": -79.389, "roof": "retractable", "factor": 1.02}, # Rogers Centre
+    "TOR": {"lat": 43.641, "lon": -79.389, "roof": "retractable", "factor": 1.01}, # Rogers Centre
     "WSN": {"lat": 38.873, "lon": -77.007, "roof": "open", "factor": 0.97}         # Nationals Park
 }
 
@@ -88,7 +93,7 @@ def fetch_metrics():
 
 def get_weather(team_code):
     stadium = STADIUM_DATA.get(team_code, {"roof": "retractable", "factor": 1.0})
-    if stadium['roof'] != 'open': return 1.0, "Indoor"
+    if stadium['roof'] != 'open': return INDOOR_FLOOR, "Indoor"
     url = f"https://api.openweathermap.org/data/2.5/weather?lat={stadium['lat']}&lon={stadium['lon']}&appid={WEATHER_API_KEY}&units=imperial"
     try:
         r = requests.get(url, timeout=5).json()
@@ -124,7 +129,12 @@ def main():
             h_b, a_b = bat_stats.get(h_k, {'wOBA': .31, 'K%': .22}), bat_stats.get(a_k, {'wOBA': .31, 'K%': .22})
 
             # 1. Projections
-            proj_full = round((((h_p['FIP'] + a_p['FIP'])/2)*0.85 + (h_b['wOBA'] + a_b['wOBA'])*10.5) * w_mult, 1)
+            proj_full = round((((h_p['FIP'] + a_p['FIP'])/2)*0.85 + (h_b['wOBA'] + a_b['wOBA'])*10.5) * w_mult * park_factor * BULLPEN_TAX, 1)
+            
+            # v11.0: Power Lineup Weighting (+0.5 runs for elite offenses)
+            if h_k in POWER_TEAMS:
+                proj_full += 0.5
+
             proj_f5 = round(proj_full * 0.52, 1)
 
             # 2. Moneyline & NRFI
