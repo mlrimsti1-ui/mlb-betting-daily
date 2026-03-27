@@ -1,63 +1,35 @@
 name: Daily MLB Betting Report
 
-
-
 on:
-
   schedule:
-
     - cron: '0 13 * * *'     # 8:00 AM Chicago time (CDT)
-
   workflow_dispatch:
 
-
-
 jobs:
-
   run-script:
-
     runs-on: ubuntu-latest
 
-
-
     # Helps suppress the warning (even if GitHub's annotation is buggy)
-
     env:
-
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 
-
-
-
     steps:
-
       - name: Checkout repository
-
         uses: actions/checkout@v5     # ← Changed to v5 (Node 24 native)
 
-
-
       - name: Set up Python
-
         uses: actions/setup-python@v6
-
         with:
-
           python-version: '3.11'
 
-
-
       - name: Install dependencies
-
         run: |
-
           pip install requests pybaseball pandas
 
-
-
       - name: Run MLB betting script
-
         env:
-
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: python mlb_betting_daily.py
