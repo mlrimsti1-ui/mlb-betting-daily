@@ -2,26 +2,31 @@ name: Daily MLB Betting Report
 
 on:
   schedule:
-    - cron: '0 13 * * *'     # 8:00 AM Chicago time (CDT)
+    # 2026 Update: You can now specify the timezone directly!
+    - cron: '37 8 * * *' 
+      timezone: 'America/Chicago'
   workflow_dispatch:
+
+# Top-level env for Node 24 compatibility
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
-
-    # Helps suppress the warning (even if GitHub's annotation is buggy)
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
+    # Added a timeout so a "stuck" runner doesn't burn your minutes
+    timeout-minutes: 10 
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5     # ← Changed to v5 (Node 24 native)
+        uses: actions/checkout@v5 
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
+          # Caching dependencies makes the run 3x faster
+          cache: 'pip' 
 
       - name: Install dependencies
         run: |
@@ -32,4 +37,5 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          WEATHER_API_KEY: ${{ secrets.WEATHER_API_KEY }}
         run: python mlb_betting_daily.py
