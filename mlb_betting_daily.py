@@ -9,10 +9,12 @@ TELEGRAM_CHAT_ID = "8779455773"
 ODDS_API_KEY = "4bdba5b98d90cc609eeadf39b1c0be2d"
 WEATHER_API_KEY = "40b796258caa0b4933609f73c70860b9"
 
-# v11.0 TUNING
+# v11.8 TUNING CONSTANTS
 BULLPEN_TAX = 1.05
 INDOOR_FLOOR = 1.03
 POWER_TEAMS = ["LAD", "ATL", "NYY"]
+EXPERIENCE_TAX = 0.4
+PLATOON_PENALTY = -0.3
 
 STADIUM_DATA = {
     "ARI": {"lat": 33.445, "lon": -112.067, "roof": "retractable", "factor": 1.02}, 
@@ -49,7 +51,7 @@ STADIUM_DATA = {
 
 TEAM_MAP = {
     "New York Yankees": "NYY", "Boston Red Sox": "BOS", "Toronto Blue Jays": "TOR",
-    "Baltimore Orioles": "BAL", "Tampa Bay Rays": "TBR", "Chicago White Sox": "CWS",
+    "Baltimore Orioles": "BAL", "Tampa Bay Rays": "TBR", "Chicago White Sox": "CHW",
     "Cleveland Guardians": "CLE", "Detroit Tigers": "DET", "Kansas City Royals": "KCR",
     "Minnesota Twins": "MIN", "Houston Astros": "HOU", "Los Angeles Angels": "LAA",
     "Oakland Athletics": "OAK", "Seattle Mariners": "SEA", "Texas Rangers": "TEX",
@@ -63,8 +65,8 @@ TEAM_MAP = {
 # ========================= ENGINES =========================
 
 def fetch_metrics():
-    print("Fetching 2025 player metrics...")
     try:
+        # Pull 2025 data as current baseline for 2026 starts
         pit = pyb.pitching_stats(2025, qual=0)[['Team', 'FIP', 'K%', 'WHIP']]
         bat = pyb.batting_stats(2025, qual=0)[['Team', 'wOBA', 'K%']]
         return bat.groupby('Team').mean().to_dict('index'), pit.groupby('Team').mean().to_dict('index')
@@ -83,23 +85,43 @@ def get_weather(team_code):
         return round(mult, 3), f"{int(t)}°F {int(w)}mph"
     except: return 1.0, "Weather N/A"
 
+def get_daily_pitchers():
+    """Generic: Fetches today's starters, handedness, and rookie status from MLB API."""
+    date_str = datetime.now().strftime('%Y-%m-%d')
+    url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={date_str}&hydrate=probablePitcher"
+    starters = {}
+    try:
+        data = requests.get(url).json()
+        for date in data.get('dates', []):
+            for game in date.get('games', []):
+                for side in ['away', 'home']:
+                    team_name = game['teams'][side]['team']['name']
+                    team_code = TEAM_MAP.get(team_name)
+                    pitcher = game['teams'][side].get('probablePitcher', {})
+                    if team_code and pitcher:
+                        p_id = pitcher.get('id')
+                        p_info = requests.get(f"https://statsapi.mlb.com/api/v1/people/{p_id}").json()['people'][0]
+                        hand = p_info.get('pitchHand', {}).get('code', 'R')
+                        is_rookie = p_info.get('mlbDebutDate', '2000') > '2025-01-01'
+                        starters[team_code] = {"hand": hand, "rookie": is_rookie}
+        return starters
+    except: return {}
+
 # ========================= MAIN EXECUTION =========================
 
 def main():
     bat_stats, pit_stats = fetch_metrics()
+    daily_pitchers = get_daily_pitchers()
     if not bat_stats: return
 
-    print("Fetching live odds...")
     params = {"apiKey": ODDS_API_KEY, "regions": "us", "markets": "h2h,totals", "oddsFormat": "american"}
     response = requests.get(f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds", params=params)
     data = response.json()
 
-    if not isinstance(data, list):
-        print(f"API Error: {data.get('message', 'Unknown Error')}")
-        return
+    if not isinstance(data, list): return
 
-    report = f"⚾ <b>MLB OMNI-REPORT v11.0: {datetime.now().strftime('%b %d')}</b>\n"
-    report += f"<i>Adjustments: Bullpen Tax (1.05x), Indoor Floor (1.03x)</i>\n\n"
+    report = f"⚾ <b>MLB OMNI-REPORT v11.8: {datetime.now().strftime('%b %d')}</b>\n"
+    report += f"<i>Logic: Auto-Starters | Platoon Splits | F5 ML | NRFI Strong</i>\n\n"
 
     for game in data:
         try:
@@ -108,27 +130,38 @@ def main():
             if not h_k or not a_k: continue
 
             w_mult, w_desc = get_weather(h_k)
-            # FIX: Define park_factor before using it
-            park_factor = STADIUM_DATA.get(h_k, {}).get('factor', 1.0)
+            park_info = STADIUM_DATA.get(h_k, {"factor": 1.0})
+            park_factor = park_info['factor']
             
+            # Pitcher Context
+            h_ctx = daily_pitchers.get(h_k, {"hand": "R", "rookie": False})
+            a_ctx = daily_pitchers.get(a_k, {"hand": "R", "rookie": False})
+
             h_p, a_p = pit_stats.get(h_k, {'FIP': 4.1, 'K%': .22}), pit_stats.get(a_k, {'FIP': 4.1, 'K%': .22})
             h_b, a_b = bat_stats.get(h_k, {'wOBA': .31, 'K%': .22}), bat_stats.get(a_k, {'wOBA': .31, 'K%': .22})
 
             # 1. Projections
-            proj_full = round((((h_p['FIP'] + a_p['FIP'])/2)*0.85 + (h_b['wOBA'] + a_b['wOBA'])*10.5) * w_mult * park_factor * BULLPEN_TAX, 1)
+            proj_base = (((h_p['FIP'] + a_p['FIP'])/2)*0.85 + (h_b['wOBA'] + a_b['wOBA'])*10.5) * w_mult * park_factor * BULLPEN_TAX
             
-            # v11.0: Power Lineup Weighting
-            if h_k in POWER_TEAMS:
-                proj_full += 0.5
+            # Adjust for Power Teams + Platoon
+            if h_k in POWER_TEAMS: proj_base += (0.5 + (PLATOON_PENALTY if a_ctx['hand'] == "L" else 0))
+            if a_k in POWER_TEAMS: proj_base += (0.5 + (PLATOON_PENALTY if h_ctx['hand'] == "L" else 0))
 
-            proj_f5 = round(proj_full * 0.52, 1)
+            # Adjust for Rookie Starters
+            if h_ctx['rookie']: proj_base += EXPERIENCE_TAX
+            if a_ctx['rookie']: proj_base += EXPERIENCE_TAX
 
-            # 2. Moneyline & NRFI
+            proj_full = round(proj_base, 1)
+            proj_f5 = round(proj_base * 0.52, 1)
+
+            # 2. Moneyline & F5 Leans
             ml_lean = h_f if h_p['FIP'] < a_p['FIP'] - 0.4 else a_f if a_p['FIP'] < h_p['FIP'] - 0.4 else "TOSS-UP"
+            f5_ml_lean = h_f if h_p['FIP'] < a_p['FIP'] else a_f
+            
             avg_k_pot = (h_p['K%'] + a_p['K%'] + h_b['K%'] + a_b['K%']) / 4
-            nrfi = "STRONG" if avg_k_pot > 0.22 and w_mult < 1.05 else "NEUTRAL"
+            nrfi = "STRONG" if avg_k_pot > 0.23 and park_factor < 1.0 else "NEUTRAL"
 
-            # 3. Edge Detection
+            # 3. Edge Detection (Total & F5)
             total_action, f5_action = "Neutral", "Neutral"
             bookies = game.get('bookmakers', [])
             if bookies:
@@ -143,17 +176,14 @@ def main():
             # 4. Final Formatting
             report += f"<b>{a_f} @ {h_f}</b>\n"
             report += f"🌡️ {w_desc} | Proj: {proj_full} (F5: {proj_f5})\n"
-            report += f"📈 ML: {ml_lean} | 🎯 NRFI: {nrfi} | Total: {total_action} | F5: {f5_action}\n\n"
-            print(f"Processed: {a_f} @ {h_f}")
+            report += f"📈 ML: {ml_lean} | F5 ML: {f5_ml_lean}\n"
+            report += f"🎯 NRFI: {nrfi} | Total: {total_action} | F5: {f5_action}\n\n"
 
         except Exception as e:
-            print(f"Game error for {game.get('home_team')}: {e}")
             continue
 
-    print("Sending report to Telegram...")
     requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
                   json={"chat_id": TELEGRAM_CHAT_ID, "text": report, "parse_mode": "HTML"})
-    print("Done.")
 
 if __name__ == "__main__":
     main()
