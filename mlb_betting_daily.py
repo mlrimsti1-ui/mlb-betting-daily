@@ -9,12 +9,13 @@ TELEGRAM_CHAT_ID = "8779455773"
 ODDS_API_KEY = "4bdba5b98d90cc609eeadf39b1c0be2d"
 WEATHER_API_KEY = "40b796258caa0b4933609f73c70860b9"
 
-# v11.8 TUNING CONSTANTS
+# v11.9 TUNING CONSTANTS
 BULLPEN_TAX = 1.05
 INDOOR_FLOOR = 1.03
 POWER_TEAMS = ["LAD", "ATL", "NYY"]
 EXPERIENCE_TAX = 0.4
 PLATOON_PENALTY = -0.3
+SUNDAY_LINEUP_TAX = -0.2 # Sunday "get-away day" suppression
 
 STADIUM_DATA = {
     "ARI": {"lat": 33.445, "lon": -112.067, "roof": "retractable", "factor": 1.02}, 
@@ -66,7 +67,6 @@ TEAM_MAP = {
 
 def fetch_metrics():
     try:
-        # Pull 2025 data as current baseline for 2026 starts
         pit = pyb.pitching_stats(2025, qual=0)[['Team', 'FIP', 'K%', 'WHIP']]
         bat = pyb.batting_stats(2025, qual=0)[['Team', 'wOBA', 'K%']]
         return bat.groupby('Team').mean().to_dict('index'), pit.groupby('Team').mean().to_dict('index')
@@ -80,13 +80,20 @@ def get_weather(team_code):
     url = f"https://api.openweathermap.org/data/2.5/weather?lat={stadium['lat']}&lon={stadium['lon']}&appid={WEATHER_API_KEY}&units=imperial"
     try:
         r = requests.get(url, timeout=5).json()
-        t, w = r['main']['temp'], r['wind']['speed']
-        mult = (1 + (t - 70) * 0.0035) * (1 + w * (0.012 if team_code == "CHC" else 0.006))
-        return round(mult, 3), f"{int(t)}°F {int(w)}mph"
+        t, w, deg = r['main']['temp'], r['wind']['speed'], r['wind'].get('deg', 0)
+        
+        # v11.9 Vector Logic: Determine if wind is blowing OUT (approx 0-180 for most parks) or IN
+        # This is a general heuristic; 0 is North, 180 is South. 
+        # Most MLB parks face NE-ish, so wind from 180-270 is often "OUT"
+        is_blowing_out = 180 <= deg <= 270 
+        wind_mod = (0.012 if is_blowing_out else -0.010)
+        
+        mult = (1 + (t - 70) * 0.0035) * (1 + w * wind_mod)
+        desc = f"{int(t)}°F {int(w)}mph {'OUT' if is_blowing_out else 'IN/CROSS'}"
+        return round(mult, 3), desc
     except: return 1.0, "Weather N/A"
 
 def get_daily_pitchers():
-    """Generic: Fetches today's starters, handedness, and rookie status from MLB API."""
     date_str = datetime.now().strftime('%Y-%m-%d')
     url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={date_str}&hydrate=probablePitcher"
     starters = {}
@@ -112,6 +119,7 @@ def get_daily_pitchers():
 def main():
     bat_stats, pit_stats = fetch_metrics()
     daily_pitchers = get_daily_pitchers()
+    is_sunday = datetime.now().weekday() == 6
     if not bat_stats: return
 
     params = {"apiKey": ODDS_API_KEY, "regions": "us", "markets": "h2h,totals", "oddsFormat": "american"}
@@ -120,8 +128,8 @@ def main():
 
     if not isinstance(data, list): return
 
-    report = f"⚾ <b>MLB OMNI-REPORT v11.8: {datetime.now().strftime('%b %d')}</b>\n"
-    report += f"<i>Logic: Auto-Starters | Platoon Splits | F5 ML | NRFI Strong</i>\n\n"
+    report = f"⚾ <b>MLB OMNI-REPORT v11.9: {datetime.now().strftime('%b %d')}</b>\n"
+    report += f"<i>Logic: Vector Wind | Sunday Tax | Platoon Splits</i>\n\n"
 
     for game in data:
         try:
@@ -133,7 +141,6 @@ def main():
             park_info = STADIUM_DATA.get(h_k, {"factor": 1.0})
             park_factor = park_info['factor']
             
-            # Pitcher Context
             h_ctx = daily_pitchers.get(h_k, {"hand": "R", "rookie": False})
             a_ctx = daily_pitchers.get(a_k, {"hand": "R", "rookie": False})
 
@@ -143,25 +150,24 @@ def main():
             # 1. Projections
             proj_base = (((h_p['FIP'] + a_p['FIP'])/2)*0.85 + (h_b['wOBA'] + a_b['wOBA'])*10.5) * w_mult * park_factor * BULLPEN_TAX
             
-            # Adjust for Power Teams + Platoon
             if h_k in POWER_TEAMS: proj_base += (0.5 + (PLATOON_PENALTY if a_ctx['hand'] == "L" else 0))
             if a_k in POWER_TEAMS: proj_base += (0.5 + (PLATOON_PENALTY if h_ctx['hand'] == "L" else 0))
-
-            # Adjust for Rookie Starters
             if h_ctx['rookie']: proj_base += EXPERIENCE_TAX
             if a_ctx['rookie']: proj_base += EXPERIENCE_TAX
+            
+            # v11.9 Sunday Lineup Adjustment
+            if is_sunday: proj_base += SUNDAY_LINEUP_TAX
 
             proj_full = round(proj_base, 1)
             proj_f5 = round(proj_base * 0.52, 1)
 
-            # 2. Moneyline & F5 Leans
+            # 2. Leans
             ml_lean = h_f if h_p['FIP'] < a_p['FIP'] - 0.4 else a_f if a_p['FIP'] < h_p['FIP'] - 0.4 else "TOSS-UP"
             f5_ml_lean = h_f if h_p['FIP'] < a_p['FIP'] else a_f
-            
             avg_k_pot = (h_p['K%'] + a_p['K%'] + h_b['K%'] + a_b['K%']) / 4
             nrfi = "STRONG" if avg_k_pot > 0.23 and park_factor < 1.0 else "NEUTRAL"
 
-            # 3. Edge Detection (Total & F5)
+            # 3. Edge Detection
             total_action, f5_action = "Neutral", "Neutral"
             bookies = game.get('bookmakers', [])
             if bookies:
@@ -173,7 +179,6 @@ def main():
                         if proj_f5 > (line/2) + 0.4: f5_action = "Over"
                         elif proj_f5 < (line/2) - 0.4: f5_action = "Under"
 
-            # 4. Final Formatting
             report += f"<b>{a_f} @ {h_f}</b>\n"
             report += f"🌡️ {w_desc} | Proj: {proj_full} (F5: {proj_f5})\n"
             report += f"📈 ML: {ml_lean} | F5 ML: {f5_ml_lean}\n"
