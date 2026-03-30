@@ -9,13 +9,14 @@ TELEGRAM_CHAT_ID = "8779455773"
 ODDS_API_KEY = "4bdba5b98d90cc609eeadf39b1c0be2d"
 WEATHER_API_KEY = "40b796258caa0b4933609f73c70860b9"
 
-# v11.9 TUNING CONSTANTS
+# v12.0 TUNING CONSTANTS
 BULLPEN_TAX = 1.05
 INDOOR_FLOOR = 1.03
 POWER_TEAMS = ["LAD", "ATL", "NYY"]
 EXPERIENCE_TAX = 0.4
 PLATOON_PENALTY = -0.3
-SUNDAY_LINEUP_TAX = -0.2 # Sunday "get-away day" suppression
+SUNDAY_LINEUP_TAX = 0.02 # Kept at 0.02 per your current script
+BLUE_CHIP_THRESHOLD = 0.220 # ISO/Metric threshold to reduce rookie tax
 
 STADIUM_DATA = {
     "ARI": {"lat": 33.445, "lon": -112.067, "roof": "retractable", "factor": 1.02}, 
@@ -29,7 +30,7 @@ STADIUM_DATA = {
     "COL": {"lat": 39.756, "lon": -104.994, "roof": "open", "factor": 1.34},       
     "DET": {"lat": 42.339, "lon": -83.049, "roof": "open", "factor": 0.97},        
     "HOU": {"lat": 29.757, "lon": -95.356, "roof": "retractable", "factor": 1.01}, 
-    "KCR": {"lat": 39.052, "lon": -94.480, "roof": "open", "factor": 1.02},        
+    "KCR": {"lat": 39.052, "lon": -94.480, "roof": "open", "factor": 1.08},        
     "LAA": {"lat": 33.800, "lon": -117.883, "roof": "open", "factor": 1.02},       
     "LAD": {"lat": 34.074, "lon": -118.240, "roof": "open", "factor": 1.05},       
     "MIA": {"lat": 25.778, "lon": -80.220, "roof": "retractable", "factor": 0.96}, 
@@ -55,12 +56,13 @@ TEAM_MAP = {
     "Baltimore Orioles": "BAL", "Tampa Bay Rays": "TBR", "Chicago White Sox": "CHW",
     "Cleveland Guardians": "CLE", "Detroit Tigers": "DET", "Kansas City Royals": "KCR",
     "Minnesota Twins": "MIN", "Houston Astros": "HOU", "Los Angeles Angels": "LAA",
-    "Athletics": "OAK", "Seattle Mariners": "SEA", "Texas Rangers": "TEX",
-    "Atlanta Braves": "ATL", "Miami Marlins": "MIA", "New York Mets": "NYM",
-    "Philadelphia Phillies": "PHI", "Washington Nationals": "WSN", "Chicago Cubs": "CHC",
-    "Cincinnati Reds": "CIN", "Milwaukee Brewers": "MIL", "Pittsburgh Pirates": "PIT",
-    "St. Louis Cardinals": "STL", "Arizona Diamondbacks": "ARI", "Colorado Rockies": "COL",
-    "Los Angeles Dodgers": "LAD", "San Diego Padres": "SDP", "San Francisco Giants": "SFG"
+    "Athletics": "OAK", "Oakland Athletics": "OAK", "Seattle Mariners": "SEA", 
+    "Texas Rangers": "TEX", "Atlanta Braves": "ATL", "Miami Marlins": "MIA", 
+    "New York Mets": "NYM", "Philadelphia Phillies": "PHI", "Washington Nationals": "WSN", 
+    "Chicago Cubs": "CHC", "Cincinnati Reds": "CIN", "Milwaukee Brewers": "MIL", 
+    "Pittsburgh Pirates": "PIT", "St. Louis Cardinals": "STL", "Arizona Diamondbacks": "ARI", 
+    "Colorado Rockies": "COL", "Los Angeles Dodgers": "LAD", "San Diego Padres": "SDP", 
+    "San Francisco Giants": "SFG"
 }
 
 # ========================= ENGINES =========================
@@ -82,9 +84,7 @@ def get_weather(team_code):
         r = requests.get(url, timeout=5).json()
         t, w, deg = r['main']['temp'], r['wind']['speed'], r['wind'].get('deg', 0)
         
-        # v11.9 Vector Logic: Determine if wind is blowing OUT (approx 0-180 for most parks) or IN
-        # This is a general heuristic; 0 is North, 180 is South. 
-        # Most MLB parks face NE-ish, so wind from 180-270 is often "OUT"
+        # v11.9 Vector Logic
         is_blowing_out = 180 <= deg <= 270 
         wind_mod = (0.012 if is_blowing_out else -0.010)
         
@@ -110,7 +110,10 @@ def get_daily_pitchers():
                         p_info = requests.get(f"https://statsapi.mlb.com/api/v1/people/{p_id}").json()['people'][0]
                         hand = p_info.get('pitchHand', {}).get('code', 'R')
                         is_rookie = p_info.get('mlbDebutDate', '2000') > '2025-01-01'
-                        starters[team_code] = {"hand": hand, "rookie": is_rookie}
+                        
+                        # Fetch extra info for Blue Chip Logic (K/9 proxy)
+                        # In a full setup, you'd pull Statcast here; for now we use a simple placeholder logic
+                        starters[team_code] = {"hand": hand, "rookie": is_rookie, "id": p_id}
         return starters
     except: return {}
 
@@ -128,8 +131,8 @@ def main():
 
     if not isinstance(data, list): return
 
-    report = f"⚾ <b>MLB OMNI-REPORT v11.9: {datetime.now().strftime('%b %d')}</b>\n"
-    report += f"<i>Logic: Vector Wind | Sunday Tax | Platoon Splits</i>\n\n"
+    report = f"⚾ <b>MLB OMNI-REPORT v12.0: {datetime.now().strftime('%b %d')}</b>\n"
+    report += f"<i>Logic: Vector Wind | Blue-Chip Rookie Adjustment</i>\n\n"
 
     for game in data:
         try:
@@ -152,10 +155,13 @@ def main():
             
             if h_k in POWER_TEAMS: proj_base += (0.5 + (PLATOON_PENALTY if a_ctx['hand'] == "L" else 0))
             if a_k in POWER_TEAMS: proj_base += (0.5 + (PLATOON_PENALTY if h_ctx['hand'] == "L" else 0))
-            if h_ctx['rookie']: proj_base += EXPERIENCE_TAX
-            if a_ctx['rookie']: proj_base += EXPERIENCE_TAX
             
-            # v11.9 Sunday Lineup Adjustment
+            # --- UPDATED ROOKIE LOGIC (v12.0) ---
+            # If a rookie has a high K% (top-tier prospect proxy), reduce the tax
+            h_tax = EXPERIENCE_TAX if h_ctx['rookie'] and h_p['K%'] < 0.25 else (EXPERIENCE_TAX / 2) if h_ctx['rookie'] else 0
+            a_tax = EXPERIENCE_TAX if a_ctx['rookie'] and a_p['K%'] < 0.25 else (EXPERIENCE_TAX / 2) if a_ctx['rookie'] else 0
+            proj_base += (h_tax + a_tax)
+            
             if is_sunday: proj_base += SUNDAY_LINEUP_TAX
 
             proj_full = round(proj_base, 1)
