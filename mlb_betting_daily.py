@@ -56,7 +56,7 @@ TEAM_MAP = {
     "Baltimore Orioles": "BAL", "Tampa Bay Rays": "TBR", "Chicago White Sox": "CHW",
     "Cleveland Guardians": "CLE", "Detroit Tigers": "DET", "Kansas City Royals": "KCR",
     "Minnesota Twins": "MIN", "Houston Astros": "HOU", "Los Angeles Angels": "LAA",
-    "Athletics": "OAK", "Oakland Athletics": "OAK", "Seattle Mariners": "SEA", 
+    "Athletics": "OAK", "Seattle Mariners": "SEA", 
     "Texas Rangers": "TEX", "Atlanta Braves": "ATL", "Miami Marlins": "MIA", 
     "New York Mets": "NYM", "Philadelphia Phillies": "PHI", "Washington Nationals": "WSN", 
     "Chicago Cubs": "CHC", "Cincinnati Reds": "CIN", "Milwaukee Brewers": "MIL", 
@@ -171,7 +171,13 @@ def main():
             # 2. Leans
             ml_lean = h_f if h_p['FIP'] < a_p['FIP'] - 0.4 else a_f if a_p['FIP'] < h_p['FIP'] - 0.4 else "TOSS-UP"
             f5_ml_lean = h_f if h_p['FIP'] < a_p['FIP'] else a_f
-            nrfi = "STRONG" if avg_k_pot > 0.24 and park_factor < 1.0 else "NEUTRAL"
+            nrfi_score = avg_k_pot - (park_factor * 0.15)
+if nrfi_score > 0.08:
+    nrfi = "STRONG"
+elif nrfi_score < 0.02:
+    nrfi = "WEAK (YRIF)"
+else:
+    nrfi = "NEUTRAL"
 
             # 3. Edge Detection
             total_action, f5_action = "Neutral", "Neutral"
