@@ -10,8 +10,8 @@ ODDS_API_KEY = "4bdba5b98d90cc609eeadf39b1c0be2d"
 WEATHER_API_KEY = "40b796258caa0b4933609f73c70860b9"
 
 # v12.1 LEAK-FIX CONSTANTS
-BULLPEN_TAX = 1.08        # Increased from 1.05 due to early-season volatility
-ABS_INFLATION = 1.02      # 2026 Robot-Ump Challenge factor (boosts OBP/Runs)
+BULLPEN_TAX = 1.08        
+ABS_INFLATION = 1.02      
 INDOOR_FLOOR = 1.03
 POWER_TEAMS = ["LAD", "ATL", "NYY"]
 EXPERIENCE_TAX = 0.4
@@ -30,7 +30,7 @@ STADIUM_DATA = {
     "COL": {"lat": 39.756, "lon": -104.994, "roof": "open", "factor": 1.34},       
     "DET": {"lat": 42.339, "lon": -83.049, "roof": "open", "factor": 1.06},       
     "HOU": {"lat": 29.757, "lon": -95.356, "roof": "retractable", "factor": 1.01}, 
-    "KCR": {"lat": 39.052, "lon": -94.480, "roof": "open", "factor": 1.11}, # NEW 2026 FENCES       
+    "KCR": {"lat": 39.052, "lon": -94.480, "roof": "open", "factor": 1.11},        
     "LAA": {"lat": 33.800, "lon": -117.883, "roof": "open", "factor": 1.02},       
     "LAD": {"lat": 34.074, "lon": -118.240, "roof": "open", "factor": 1.05},       
     "MIA": {"lat": 25.778, "lon": -80.220, "roof": "retractable", "factor": 1.06}, 
@@ -38,7 +38,7 @@ STADIUM_DATA = {
     "MIN": {"lat": 44.982, "lon": -93.278, "roof": "open", "factor": 1.06},        
     "NYM": {"lat": 40.757, "lon": -73.846, "roof": "open", "factor": 0.96},        
     "NYY": {"lat": 40.830, "lon": -73.926, "roof": "open", "factor": 1.02},        
-    "OAK": {"lat": 38.581, "lon": -121.505, "roof": "open", "factor": 1.09}, # SUTTER HEALTH PARK      
+    "OAK": {"lat": 38.581, "lon": -121.505, "roof": "open", "factor": 1.09},       
     "PHI": {"lat": 39.906, "lon": -75.166, "roof": "open", "factor": 1.03},        
     "PIT": {"lat": 40.447, "lon": -80.006, "roof": "open", "factor": 1.01},        
     "SDP": {"lat": 32.708, "lon": -117.157, "roof": "open", "factor": 0.94},       
@@ -47,7 +47,7 @@ STADIUM_DATA = {
     "STL": {"lat": 38.623, "lon": -90.193, "roof": "open", "factor": 0.97},        
     "TBR": {"lat": 27.768, "lon": -82.653, "roof": "dome", "factor": 1.02},        
     "TEX": {"lat": 32.751, "lon": -97.083, "roof": "retractable", "factor": 1.00}, 
-    "TOR": {"lat": 43.641, "lon": -79.389, "roof": "retractable", "factor": 0.98}, # 2026 RENOVATED       
+    "TOR": {"lat": 43.641, "lon": -79.389, "roof": "retractable", "factor": 0.98},        
     "WSN": {"lat": 38.873, "lon": -77.007, "roof": "open", "factor": 1.01}          
 }
 
@@ -84,13 +84,11 @@ def get_weather_impact(team_code, avg_k_pct):
     try:
         r = requests.get(url, timeout=5).json()
         t, w, deg = r['main']['temp'], r['wind']['speed'], r['wind'].get('deg', 0)
-        
         is_blowing_out = 180 <= deg <= 270 
         wind_mod = (0.012 if is_blowing_out else -0.010)
         
-        # v12.1 Muting Logic: High-K pitchers negate wind impact
         if avg_k_pct > 0.26:
-            wind_mod *= 0.65 # Reduces wind pull by 35% for elite velocity
+            wind_mod *= 0.65 
             
         mult = (1 + (t - 70) * 0.0035) * (1 + w * wind_mod)
         desc = f"{int(t)}°F {int(w)}mph {'OUT' if is_blowing_out else 'IN/CROSS'}"
@@ -133,7 +131,7 @@ def main():
     if not isinstance(data, list): return
 
     report = f"⚾ <b>MLB OMNI-REPORT v12.1: {datetime.now().strftime('%b %d')}</b>\n"
-    report += f"<i>Logic: v12.1 Stabilizer (ABS + High-K Wind Muting)</i>\n\n"
+    report += f"<i>Logic: Dynamic NRFI + ABS Stability</i>\n\n"
 
     for game in data:
         try:
@@ -152,7 +150,6 @@ def main():
             a_ctx = daily_pitchers.get(a_k, {"hand": "R", "rookie": False})
             h_b, a_b = bat_stats.get(h_k, {'wOBA': .31, 'K%': .22}), bat_stats.get(a_k, {'wOBA': .31, 'K%': .22})
 
-            # 1. Projections (v12.1 Formula)
             proj_base = (((h_p['FIP'] + a_p['FIP'])/2)*0.85 + (h_b['wOBA'] + a_b['wOBA'])*10.5) * \
                         w_mult * park_factor * BULLPEN_TAX * ABS_INFLATION
             
@@ -168,18 +165,18 @@ def main():
             proj_full = round(proj_base, 1)
             proj_f5 = round(proj_base * 0.52, 1)
 
-            # 2. Leans
+            # --- v12.1 DYNAMIC NRFI LOGIC ---
+            nrfi_score = avg_k_pot - (park_factor * 0.15)
+            if nrfi_score > 0.08:
+                nrfi = "STRONG"
+            elif nrfi_score < 0.02:
+                nrfi = "WEAK (YRIF)"
+            else:
+                nrfi = "NEUTRAL"
+
             ml_lean = h_f if h_p['FIP'] < a_p['FIP'] - 0.4 else a_f if a_p['FIP'] < h_p['FIP'] - 0.4 else "TOSS-UP"
             f5_ml_lean = h_f if h_p['FIP'] < a_p['FIP'] else a_f
-            nrfi_score = avg_k_pot - (park_factor * 0.15)
-if nrfi_score > 0.08:
-    nrfi = "STRONG"
-elif nrfi_score < 0.02:
-    nrfi = "WEAK (YRIF)"
-else:
-    nrfi = "NEUTRAL"
 
-            # 3. Edge Detection
             total_action, f5_action = "Neutral", "Neutral"
             bookies = game.get('bookmakers', [])
             if bookies:
