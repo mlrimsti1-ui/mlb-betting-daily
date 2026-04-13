@@ -5,12 +5,17 @@ from datetime import datetime
 import pybaseball as pyb
 
 # ========================= CONFIG & KEYS =========================
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8216569304:AAFrWNUFtDFeUwS4TylFULp_ZkEvNakd8b8")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "8779455773")
-ODDS_API_KEY = os.getenv("ODDS_API_KEY", "4bdba5b98d90cc609eeadf39b1c0be2d")
-WEATHER_API_KEY = os.getenv("WEATHER_API_KEY", "40b796258caa0b4933609f73c70860b9")
+# These are pulled from your GitHub Secrets via the YAML environment
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+ODDS_API_KEY = os.getenv("ODDS_API_KEY")
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
-# v12.4 RESILIENCE + FALLBACK
+# Debug logs to verify environment variables are loading in GitHub Actions
+print(f"DEBUG: Odds API Key present: {bool(ODDS_API_KEY)}")
+print(f"DEBUG: Telegram Token present: {bool(TELEGRAM_TOKEN)}")
+
+# v12.5 FINAL STABILITY & RESILIENCE
 BULLPEN_TAX = 1.08         
 ABS_INFLATION = 1.02       
 INDOOR_FLOOR = 1.03
@@ -75,30 +80,27 @@ def fetch_metrics():
     for year in years_to_try:
         try:
             print(f"Attempting Statcast fetch for {year}...")
-            # Using generic statcast call to bypass import errors
+            # Use dot notation for compatibility
             bat_raw = pyb.statcast_batter_exit_velocity_barrels(year)
             pit_raw = pyb.statcast_pitcher_exit_velocity_barrels(year)
             
-            if bat_raw is None or bat_raw.empty or pit_raw.empty:
-                continue
+            if bat_raw is not None and not bat_raw.empty and pit_raw is not None:
+                bat_df = bat_raw[['team', 'woba']].copy()
+                bat_df.columns = ['Team', 'wOBA']
+                
+                pit_df = pit_raw[['team', 'fip', 'k_percent']].copy()
+                pit_df.columns = ['Team', 'FIP', 'K%']
+                pit_df['K%'] = pit_df['K%'] / 100
 
-            bat_df = bat_raw[['team', 'woba']].copy()
-            bat_df.columns = ['Team', 'wOBA']
-            
-            pit_df = pit_raw[['team', 'fip', 'k_percent']].copy()
-            pit_df.columns = ['Team', 'FIP', 'K%']
-            pit_df['K%'] = pit_df['K%'] / 100
-
-            print(f"Successfully retrieved {year} Statcast data.")
-            return bat_df.groupby('Team').mean().to_dict('index'), pit_df.groupby('Team').mean().to_dict('index')
-            
+                print(f"Successfully retrieved {year} data.")
+                return bat_df.groupby('Team').mean().to_dict('index'), pit_df.groupby('Team').mean().to_dict('index')
         except Exception as e:
-            print(f"Statcast {year} failed: {e}")
+            print(f"Fetch failed for {year}: {e}")
             continue
-            
     return None, None
 
 def get_weather_impact(team_code, avg_k_pct):
+    if not WEATHER_API_KEY: return 1.0, "No API Key"
     stadium = STADIUM_DATA.get(team_code, {"roof": "retractable", "factor": 1.0})
     if stadium['roof'] != 'open': return INDOOR_FLOOR, "Indoor"
     
@@ -108,13 +110,9 @@ def get_weather_impact(team_code, avg_k_pct):
         t, w, deg = r['main']['temp'], r['wind']['speed'], r['wind'].get('deg', 0)
         is_blowing_out = 180 <= deg <= 270 
         wind_mod = (0.012 if is_blowing_out else -0.010)
-        
-        if avg_k_pct > 0.26:
-            wind_mod *= 0.65 
-            
+        if avg_k_pct > 0.26: wind_mod *= 0.65 
         mult = (1 + (t - 70) * 0.0035) * (1 + w * wind_mod)
-        desc = f"{int(t)}°F {int(w)}mph {'OUT' if is_blowing_out else 'IN/CROSS'}"
-        return round(mult, 3), desc
+        return round(mult, 3), f"{int(t)}°F {int(w)}mph"
     except: return 1.0, "Weather N/A"
 
 def get_daily_pitchers():
@@ -134,7 +132,7 @@ def get_daily_pitchers():
                         p_info = requests.get(f"https://statsapi.mlb.com/api/v1/people/{p_id}").json()['people'][0]
                         hand = p_info.get('pitchHand', {}).get('code', 'R')
                         is_rookie = p_info.get('mlbDebutDate', '2000') > f'{datetime.now().year}-01-01'
-                        starters[team_code] = {"hand": hand, "rookie": is_rookie, "id": p_id}
+                        starters[team_code] = {"hand": hand, "rookie": is_rookie}
         return starters
     except: return {}
 
@@ -143,23 +141,25 @@ def main():
     daily_pitchers = get_daily_pitchers()
     is_sunday = datetime.now().weekday() == 6
     
-    # Fallback to prevent crash if metrics fail
-    if not bat_stats or not pit_stats: 
-        print("WARNING: Using generic baseline metrics due to source failure.")
+    # Fallback to prevent crash if data source is blocked
+    if not bat_stats: 
+        print("Using generic metrics fallback.")
         bat_stats = {k: {'wOBA': 0.315} for k in TEAM_MAP.values()}
         pit_stats = {k: {'FIP': 4.20, 'K%': 0.22} for k in TEAM_MAP.values()}
+
+    if not ODDS_API_KEY:
+        print("CRITICAL: ODDS_API_KEY is missing from environment.")
+        return
 
     params = {"apiKey": ODDS_API_KEY, "regions": "us", "markets": "h2h,totals", "oddsFormat": "american"}
     response = requests.get(f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds", params=params)
     data = response.json()
 
     if not isinstance(data, list): 
-        print(f"Odds API Error: {data}")
+        print(f"Odds API Error Response: {data}")
         return
 
-    report = f"⚾ <b>MLB OMNI-REPORT v12.4: {datetime.now().strftime('%b %d')}</b>\n"
-    report += f"<i>Mode: Cross-Version Resilience</i>\n\n"
-
+    report = f"⚾ <b>MLB OMNI-REPORT v12.5: {datetime.now().strftime('%b %d')}</b>\n\n"
     game_count = 0
     for game in data:
         try:
@@ -167,71 +167,37 @@ def main():
             h_k, a_k = TEAM_MAP.get(h_f), TEAM_MAP.get(a_f)
             if not h_k or not a_k: continue
 
-            h_p = pit_stats.get(h_k, {'FIP': 4.1, 'K%': .22})
-            a_p = pit_stats.get(a_k, {'FIP': 4.1, 'K%': .22})
+            h_p, a_p = pit_stats.get(h_k, {'FIP': 4.1, 'K%': .22}), pit_stats.get(a_k, {'FIP': 4.1, 'K%': .22})
             avg_k_pot = (h_p['K%'] + a_p['K%']) / 2
             
             w_mult, w_desc = get_weather_impact(h_k, avg_k_pot)
-            park_info = STADIUM_DATA.get(h_k, {"factor": 1.0})
-            park_factor = park_info['factor']
+            park_factor = STADIUM_DATA.get(h_k, {"factor": 1.0})['factor']
             
-            h_ctx = daily_pitchers.get(h_k, {"hand": "R", "rookie": False})
-            a_ctx = daily_pitchers.get(a_k, {"hand": "R", "rookie": False})
-            h_b = bat_stats.get(h_k, {'wOBA': .31})
-            a_b = bat_stats.get(a_k, {'wOBA': .31})
+            h_ctx, a_ctx = daily_pitchers.get(h_k, {"hand": "R", "rookie": False}), daily_pitchers.get(a_k, {"hand": "R", "rookie": False})
+            h_b, a_b = bat_stats.get(h_k, {'wOBA': .31}), bat_stats.get(a_k, {'wOBA': .31})
 
-            proj_base = (((h_p['FIP'] + a_p['FIP'])/2)*0.85 + (h_b['wOBA'] + a_b['wOBA'])*10.5) * \
-                        w_mult * park_factor * BULLPEN_TAX * ABS_INFLATION
+            proj_base = (((h_p['FIP'] + a_p['FIP'])/2)*0.85 + (h_b['wOBA'] + a_b['wOBA'])*10.5) * w_mult * park_factor * BULLPEN_TAX * ABS_INFLATION
             
+            # Scenario Adjustments
             if h_k in POWER_TEAMS: proj_base += (0.5 + (PLATOON_PENALTY if a_ctx['hand'] == "L" else 0))
             if a_k in POWER_TEAMS: proj_base += (0.5 + (PLATOON_PENALTY if h_ctx['hand'] == "L" else 0))
-            
-            h_tax = EXPERIENCE_TAX if h_ctx['rookie'] and h_p['K%'] < 0.25 else (EXPERIENCE_TAX / 2) if h_ctx['rookie'] else 0
-            a_tax = EXPERIENCE_TAX if a_ctx['rookie'] and a_p['K%'] < 0.25 else (EXPERIENCE_TAX / 2) if a_ctx['rookie'] else 0
-            proj_base += (h_tax + a_tax)
-            
+            proj_base += (EXPERIENCE_TAX if h_ctx['rookie'] else 0) + (EXPERIENCE_TAX if a_ctx['rookie'] else 0)
             if is_sunday: proj_base += SUNDAY_LINEUP_TAX
 
             proj_full = round(proj_base, 1)
-            proj_f5 = round(proj_base * 0.52, 1)
-
-            nrfi_score = avg_k_pot - (park_factor * 0.15)
-            if nrfi_score > 0.08:
-                nrfi = "STRONG"
-            elif nrfi_score < 0.02:
-                nrfi = "WEAK (YRIF)"
-            else:
-                nrfi = "NEUTRAL"
-
-            ml_lean = h_f if h_p['FIP'] < a_p['FIP'] - 0.4 else a_f if a_p['FIP'] < h_p['FIP'] - 0.4 else "TOSS-UP"
-            
-            total_action, f5_action = "Neutral", "Neutral"
-            bookies = game.get('bookmakers', [])
-            if bookies:
-                for market in bookies[0]['markets']:
-                    if market['key'] == 'totals':
-                        line = market['outcomes'][0]['point']
-                        if proj_full > line + 0.6: total_action = "Over"
-                        elif proj_full < line - 0.6: total_action = "Under"
-                        if proj_f5 > (line/2) + 0.4: f5_action = "Over"
-                        elif proj_f5 < (line/2) - 0.4: f5_action = "Under"
+            nrfi = "STRONG" if (avg_k_pot - (park_factor * 0.15)) > 0.08 else "NEUTRAL"
 
             report += f"<b>{a_f} @ {h_f}</b>\n"
-            report += f"🌡️ {w_desc} | Proj: {proj_full} (F5: {proj_f5})\n"
-            report += f"📈 ML: {ml_lean} | NRFI: {nrfi}\n"
-            report += f"🎯 Total: {total_action} | F5: {f5_action}\n\n"
+            report += f"🌡️ {w_desc} | Proj: {proj_full} | NRFI: {nrfi}\n\n"
             game_count += 1
+        except: continue
 
-        except Exception as e:
-            continue
-
-    if game_count > 0:
+    if game_count > 0 and TELEGRAM_TOKEN:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": report, "parse_mode": "HTML"}
-        r = requests.post(url, json=payload)
-        print(f"Telegram status: {r.status_code}")
+        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": report, "parse_mode": "HTML"})
+        print("Report sent to Telegram.")
     else:
-        print("No games found.")
+        print("No games processed or Telegram token missing.")
 
 if __name__ == "__main__":
     main()
