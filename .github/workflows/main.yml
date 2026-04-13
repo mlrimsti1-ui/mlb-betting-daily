@@ -1,31 +1,29 @@
-name: Daily MLB Betting Report
+name: MLB Daily Betting Report
 
 on:
   schedule:
-    - cron: '0 13 * * *'     # 8:00 AM Chicago time (CDT)
-  workflow_dispatch:
+    - cron: '0 13 * * *' # Runs daily at 9:00 AM ET
+  workflow_dispatch:      # Allows you to run it manually for testing
 
 jobs:
-  run-script:
+  build:
     runs-on: ubuntu-latest
 
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
+      - name: Checkout code
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
       - name: Install dependencies
         run: |
-          pip install requests pybaseball pandas
+          pip install --upgrade pip
+          pip install requests pandas pybaseball --upgrade --no-cache-dir
 
-      - name: Run MLB betting script
+      - name: Run MLB Report
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
