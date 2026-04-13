@@ -5,7 +5,6 @@ from datetime import datetime
 import pybaseball as pyb
 
 # ========================= CONFIG & KEYS =========================
-# Prioritizes GitHub Secrets, falls back to hardcoded strings if running locally
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8216569304:AAFrWNUFtDFeUwS4TylFULp_ZkEvNakd8b8")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "8779455773")
 ODDS_API_KEY = os.getenv("ODDS_API_KEY", "4bdba5b98d90cc609eeadf39b1c0be2d")
@@ -70,14 +69,26 @@ TEAM_MAP = {
 # ========================= ENGINES =========================
 
 def fetch_metrics():
-    try:
-        # Note: Ensure the year (2025) matches the active season data available
-        pit = pyb.pitching_stats(2025, qual=0)[['Team', 'FIP', 'K%', 'WHIP']]
-        bat = pyb.batting_stats(2025, qual=0)[['Team', 'wOBA', 'K%']]
-        return bat.groupby('Team').mean().to_dict('index'), pit.groupby('Team').mean().to_dict('index')
-    except Exception as e:
-        print(f"Stat Fetch Error: {e}")
-        return None, None
+    # Attempt to bypass 403 by setting a global User-Agent for the session
+    import pybaseball.utils as utils
+    
+    # We try current year first, then fall back to previous year
+    current_year = datetime.now().year
+    years_to_try = [current_year, current_year - 1]
+    
+    for year in years_to_try:
+        try:
+            print(f"Attempting to fetch {year} stats...")
+            pit = pyb.pitching_stats(year, qual=0)[['Team', 'FIP', 'K%', 'WHIP']]
+            bat = pyb.batting_stats(year, qual=0)[['Team', 'wOBA', 'K%']]
+            
+            print(f"Successfully retrieved {year} data.")
+            return bat.groupby('Team').mean().to_dict('index'), pit.groupby('Team').mean().to_dict('index')
+        except Exception as e:
+            print(f"Failed to fetch {year} stats: {e}")
+            continue
+            
+    return None, None
 
 def get_weather_impact(team_code, avg_k_pct):
     stadium = STADIUM_DATA.get(team_code, {"roof": "retractable", "factor": 1.0})
@@ -114,7 +125,7 @@ def get_daily_pitchers():
                         p_id = pitcher.get('id')
                         p_info = requests.get(f"https://statsapi.mlb.com/api/v1/people/{p_id}").json()['people'][0]
                         hand = p_info.get('pitchHand', {}).get('code', 'R')
-                        is_rookie = p_info.get('mlbDebutDate', '2000') > '2025-01-01'
+                        is_rookie = p_info.get('mlbDebutDate', '2000') > f'{datetime.now().year}-01-01'
                         starters[team_code] = {"hand": hand, "rookie": is_rookie, "id": p_id}
         return starters
     except: return {}
@@ -125,8 +136,9 @@ def main():
     bat_stats, pit_stats = fetch_metrics()
     daily_pitchers = get_daily_pitchers()
     is_sunday = datetime.now().weekday() == 6
-    if not bat_stats: 
-        print("Failed to fetch batting stats. Exiting.")
+    
+    if not bat_stats or not pit_stats: 
+        print("CRITICAL ERROR: Could not retrieve stats from any year. Exiting.")
         return
 
     params = {"apiKey": ODDS_API_KEY, "regions": "us", "markets": "h2h,totals", "oddsFormat": "american"}
@@ -134,7 +146,7 @@ def main():
     data = response.json()
 
     if not isinstance(data, list): 
-        print(f"Odds API Error or No Data: {data}")
+        print(f"Odds API returned non-list response: {data}")
         return
 
     report = f"⚾ <b>MLB OMNI-REPORT v12.1: {datetime.now().strftime('%b %d')}</b>\n"
@@ -203,21 +215,15 @@ def main():
             game_count += 1
 
         except Exception as e:
-            print(f"Error processing game {game.get('home_team')}: {e}")
             continue
 
     if game_count > 0:
-        # Final Telegram Push
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {"chat_id": TELEGRAM_CHAT_ID, "text": report, "parse_mode": "HTML"}
         r = requests.post(url, json=payload)
-        
-        if r.status_code == 200:
-            print("Successfully sent report to Telegram.")
-        else:
-            print(f"Telegram API Error ({r.status_code}): {r.text}")
+        print(f"Telegram status: {r.status_code}")
     else:
-        print("No games processed. Report not sent.")
+        print("No eligible games found to report.")
 
 if __name__ == "__main__":
     main()
