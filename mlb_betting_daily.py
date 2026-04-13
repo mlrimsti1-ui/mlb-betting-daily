@@ -2,12 +2,14 @@ import requests
 import pandas as pd
 from datetime import datetime
 import pybaseball as pyb
+import os  # Add this at the top
 
 # ========================= CONFIG & KEYS =========================
-TELEGRAM_TOKEN = "8216569304:AAFrWNUFtDFeUwS4TylFULp_ZkEvNakd8b8"
-TELEGRAM_CHAT_ID = "8779455773"
-ODDS_API_KEY = "4bdba5b98d90cc609eeadf39b1c0be2d"
-WEATHER_API_KEY = "40b796258caa0b4933609f73c70860b9"
+# Use os.getenv to pull from GitHub Secrets, with your hardcoded ones as fallbacks
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8216569304:AAFrWNUFtDFeUwS4TylFULp_ZkEvNakd8b8")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "8779455773")
+ODDS_API_KEY = os.getenv("ODDS_API_KEY", "4bdba5b98d90cc609eeadf39b1c0be2d")
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY", "40b796258caa0b4933609f73c70860b9")
 
 # v12.1 LEAK-FIX CONSTANTS
 BULLPEN_TAX = 1.08        
