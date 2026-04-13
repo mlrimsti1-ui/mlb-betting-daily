@@ -8,13 +8,16 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # This ensures the actual GitHub runner engine uses Node 24 for the actions below
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4 # Updated from v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5 # Updated from v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -25,7 +28,6 @@ jobs:
 
       - name: Run MLB Report
         env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Opting in as suggested
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
