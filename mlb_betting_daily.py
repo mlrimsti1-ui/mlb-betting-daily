@@ -5,21 +5,20 @@ from datetime import datetime
 import pybaseball as pyb
 
 # ========================= CONFIG & KEYS =========================
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-ODDS_API_KEY = os.getenv("ODDS_API_KEY")
-WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+ODDS_API_KEY = os.environ.get("ODDS_API_KEY")
+WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY")
 
+# Final verification logs
 print(f"DEBUG: Odds API Key present: {bool(ODDS_API_KEY)}")
 print(f"DEBUG: Telegram Token present: {bool(TELEGRAM_TOKEN)}")
 
-# v12.6 - STABILITY & RESILIENCE MODE
+# Model Constants
 BULLPEN_TAX = 1.08         
 ABS_INFLATION = 1.02       
 INDOOR_FLOOR = 1.03
 POWER_TEAMS = ["LAD", "ATL", "NYY"]
-EXPERIENCE_TAX = 0.4
-PLATOON_PENALTY = -0.3
 
 STADIUM_DATA = {
     "ARI": {"lat": 33.445, "lon": -112.067, "roof": "retractable", "factor": 1.01}, 
@@ -69,20 +68,15 @@ TEAM_MAP = {
 }
 
 def fetch_metrics():
-    current_year = datetime.now().year
-    years = [current_year, current_year - 1]
-    
-    for year in years:
+    # Attempting to go back as far as 2024 if 2026/2025 isn't ready
+    for year in [2026, 2025, 2024]:
         try:
             print(f"Attempting Statcast fetch for {year}...")
-            # Using getattr for safe library calls
             b_func = getattr(pyb, 'statcast_batter_exit_velocity_barrels', None)
             p_func = getattr(pyb, 'statcast_pitcher_exit_velocity_barrels', None)
-            
             if b_func and p_func:
                 bat_raw = b_func(year)
                 pit_raw = p_func(year)
-                
                 if bat_raw is not None and not bat_raw.empty:
                     bat_df = bat_raw[['team', 'woba']].copy()
                     bat_df.columns = ['Team', 'wOBA']
@@ -90,50 +84,25 @@ def fetch_metrics():
                     pit_df.columns = ['Team', 'FIP', 'K%']
                     pit_df['K%'] = pit_df['K%'] / 100
                     return bat_df.groupby('Team').mean().to_dict('index'), pit_df.groupby('Team').mean().to_dict('index')
-        except Exception as e:
-            print(f"Failed for {year}: {e}")
-            continue
+        except: continue
     return None, None
 
 def get_weather_impact(team_code, avg_k_pct):
     if not WEATHER_API_KEY: return 1.0, "No Key"
     stadium = STADIUM_DATA.get(team_code, {"roof": "retractable", "factor": 1.0})
     if stadium['roof'] != 'open': return INDOOR_FLOOR, "Indoor"
-    
     url = f"https://api.openweathermap.org/data/2.5/weather?lat={stadium['lat']}&lon={stadium['lon']}&appid={WEATHER_API_KEY}&units=imperial"
     try:
         r = requests.get(url, timeout=5).json()
         t, w, deg = r['main']['temp'], r['wind']['speed'], r['wind'].get('deg', 0)
         is_blowing_out = 180 <= deg <= 270 
         wind_mod = (0.012 if is_blowing_out else -0.010)
-        if avg_k_pct > 0.26: wind_mod *= 0.65 
         mult = (1 + (t - 70) * 0.0035) * (1 + w * wind_mod)
         return round(mult, 3), f"{int(t)}°F {int(w)}mph"
     except: return 1.0, "Weather N/A"
 
-def get_daily_pitchers():
-    date_str = datetime.now().strftime('%Y-%m-%d')
-    url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={date_str}&hydrate=probablePitcher"
-    starters = {}
-    try:
-        data = requests.get(url).json()
-        for date in data.get('dates', []):
-            for game in date.get('games', []):
-                for side in ['away', 'home']:
-                    team_name = game['teams'][side]['team']['name']
-                    team_code = TEAM_MAP.get(team_name)
-                    pitcher = game['teams'][side].get('probablePitcher', {})
-                    if team_code and pitcher:
-                        p_id = pitcher.get('id')
-                        p_info = requests.get(f"https://statsapi.mlb.com/api/v1/people/{p_id}").json()['people'][0]
-                        hand = p_info.get('pitchHand', {}).get('code', 'R')
-                        starters[team_code] = {"hand": hand}
-        return starters
-    except: return {}
-
 def main():
     bat_stats, pit_stats = fetch_metrics()
-    daily_pitchers = get_daily_pitchers()
     
     if not bat_stats: 
         print("Using generic metrics fallback.")
@@ -148,15 +117,13 @@ def main():
         params = {"apiKey": ODDS_API_KEY, "regions": "us", "markets": "h2h,totals", "oddsFormat": "american"}
         response = requests.get(f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds", params=params)
         data = response.json()
-    except Exception as e:
-        print(f"Odds API Fail: {e}")
-        return
+    except: return
 
     if not isinstance(data, list): 
-        print(f"Error Response: {data}")
+        print(f"Error: {data}")
         return
 
-    report = f"⚾ <b>MLB OMNI-REPORT v12.6: {datetime.now().strftime('%b %d')}</b>\n\n"
+    report = f"⚾ <b>MLB OMNI-REPORT v12.7: {datetime.now().strftime('%b %d')}</b>\n\n"
     game_count = 0
     for game in data:
         try:
@@ -165,30 +132,22 @@ def main():
             if not h_k or not a_k: continue
 
             h_p, a_p = pit_stats.get(h_k, {'FIP': 4.1, 'K%': .22}), pit_stats.get(a_k, {'FIP': 4.1, 'K%': .22})
-            avg_k_pot = (h_p['K%'] + a_p['K%']) / 2
-            
-            w_mult, w_desc = get_weather_impact(h_k, avg_k_pot)
-            park_factor = STADIUM_DATA.get(h_k, {"factor": 1.0})['factor']
+            w_mult, w_desc = get_weather_impact(h_k, (h_p['K%'] + a_p['K%']) / 2)
+            park = STADIUM_DATA.get(h_k, {"factor": 1.0})['factor']
             
             h_b, a_b = bat_stats.get(h_k, {'wOBA': .31}), bat_stats.get(a_k, {'wOBA': .31})
-
-            proj_base = (((h_p['FIP'] + a_p['FIP'])/2)*0.85 + (h_b['wOBA'] + a_b['wOBA'])*10.5) * w_mult * park_factor * BULLPEN_TAX * ABS_INFLATION
+            proj = (((h_p['FIP'] + a_p['FIP'])/2)*0.85 + (h_b['wOBA'] + a_b['wOBA'])*10.5) * w_mult * park * BULLPEN_TAX * ABS_INFLATION
             
-            if h_k in POWER_TEAMS: proj_base += 0.5
-            if a_k in POWER_TEAMS: proj_base += 0.5
+            if h_k in POWER_TEAMS or a_k in POWER_TEAMS: proj += 0.5
 
-            proj_full = round(proj_base, 1)
-            nrfi = "STRONG" if (avg_k_pot - (park_factor * 0.15)) > 0.08 else "NEUTRAL"
-
-            report += f"<b>{a_f} @ {h_f}</b>\n"
-            report += f"🌡️ {w_desc} | Proj: {proj_full} | NRFI: {nrfi}\n\n"
+            report += f"<b>{a_f} @ {h_f}</b>\n🌡️ {w_desc} | Proj: {round(proj, 1)}\n\n"
             game_count += 1
         except: continue
 
     if game_count > 0 and TELEGRAM_TOKEN:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": report, "parse_mode": "HTML"})
-        print("Done.")
+        print("Success.")
 
 if __name__ == "__main__":
     main()
