@@ -5,24 +5,21 @@ from datetime import datetime
 import pybaseball as pyb
 
 # ========================= CONFIG & KEYS =========================
-# These are pulled from your GitHub Secrets via the YAML environment
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 ODDS_API_KEY = os.getenv("ODDS_API_KEY")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
-# Debug logs to verify environment variables are loading in GitHub Actions
 print(f"DEBUG: Odds API Key present: {bool(ODDS_API_KEY)}")
 print(f"DEBUG: Telegram Token present: {bool(TELEGRAM_TOKEN)}")
 
-# v12.5 FINAL STABILITY & RESILIENCE
+# v12.6 - STABILITY & RESILIENCE MODE
 BULLPEN_TAX = 1.08         
 ABS_INFLATION = 1.02       
 INDOOR_FLOOR = 1.03
 POWER_TEAMS = ["LAD", "ATL", "NYY"]
 EXPERIENCE_TAX = 0.4
 PLATOON_PENALTY = -0.3
-SUNDAY_LINEUP_TAX = 0.02 
 
 STADIUM_DATA = {
     "ARI": {"lat": 33.445, "lon": -112.067, "roof": "retractable", "factor": 1.01}, 
@@ -71,36 +68,35 @@ TEAM_MAP = {
     "San Francisco Giants": "SFG"
 }
 
-# ========================= ENGINES =========================
-
 def fetch_metrics():
     current_year = datetime.now().year
-    years_to_try = [current_year, current_year - 1]
+    years = [current_year, current_year - 1]
     
-    for year in years_to_try:
+    for year in years:
         try:
             print(f"Attempting Statcast fetch for {year}...")
-            # Use dot notation for compatibility
-            bat_raw = pyb.statcast_batter_exit_velocity_barrels(year)
-            pit_raw = pyb.statcast_pitcher_exit_velocity_barrels(year)
+            # Using getattr for safe library calls
+            b_func = getattr(pyb, 'statcast_batter_exit_velocity_barrels', None)
+            p_func = getattr(pyb, 'statcast_pitcher_exit_velocity_barrels', None)
             
-            if bat_raw is not None and not bat_raw.empty and pit_raw is not None:
-                bat_df = bat_raw[['team', 'woba']].copy()
-                bat_df.columns = ['Team', 'wOBA']
+            if b_func and p_func:
+                bat_raw = b_func(year)
+                pit_raw = p_func(year)
                 
-                pit_df = pit_raw[['team', 'fip', 'k_percent']].copy()
-                pit_df.columns = ['Team', 'FIP', 'K%']
-                pit_df['K%'] = pit_df['K%'] / 100
-
-                print(f"Successfully retrieved {year} data.")
-                return bat_df.groupby('Team').mean().to_dict('index'), pit_df.groupby('Team').mean().to_dict('index')
+                if bat_raw is not None and not bat_raw.empty:
+                    bat_df = bat_raw[['team', 'woba']].copy()
+                    bat_df.columns = ['Team', 'wOBA']
+                    pit_df = pit_raw[['team', 'fip', 'k_percent']].copy()
+                    pit_df.columns = ['Team', 'FIP', 'K%']
+                    pit_df['K%'] = pit_df['K%'] / 100
+                    return bat_df.groupby('Team').mean().to_dict('index'), pit_df.groupby('Team').mean().to_dict('index')
         except Exception as e:
-            print(f"Fetch failed for {year}: {e}")
+            print(f"Failed for {year}: {e}")
             continue
     return None, None
 
 def get_weather_impact(team_code, avg_k_pct):
-    if not WEATHER_API_KEY: return 1.0, "No API Key"
+    if not WEATHER_API_KEY: return 1.0, "No Key"
     stadium = STADIUM_DATA.get(team_code, {"roof": "retractable", "factor": 1.0})
     if stadium['roof'] != 'open': return INDOOR_FLOOR, "Indoor"
     
@@ -131,35 +127,36 @@ def get_daily_pitchers():
                         p_id = pitcher.get('id')
                         p_info = requests.get(f"https://statsapi.mlb.com/api/v1/people/{p_id}").json()['people'][0]
                         hand = p_info.get('pitchHand', {}).get('code', 'R')
-                        is_rookie = p_info.get('mlbDebutDate', '2000') > f'{datetime.now().year}-01-01'
-                        starters[team_code] = {"hand": hand, "rookie": is_rookie}
+                        starters[team_code] = {"hand": hand}
         return starters
     except: return {}
 
 def main():
     bat_stats, pit_stats = fetch_metrics()
     daily_pitchers = get_daily_pitchers()
-    is_sunday = datetime.now().weekday() == 6
     
-    # Fallback to prevent crash if data source is blocked
     if not bat_stats: 
         print("Using generic metrics fallback.")
         bat_stats = {k: {'wOBA': 0.315} for k in TEAM_MAP.values()}
         pit_stats = {k: {'FIP': 4.20, 'K%': 0.22} for k in TEAM_MAP.values()}
 
     if not ODDS_API_KEY:
-        print("CRITICAL: ODDS_API_KEY is missing from environment.")
+        print("CRITICAL: ODDS_API_KEY is missing.")
         return
 
-    params = {"apiKey": ODDS_API_KEY, "regions": "us", "markets": "h2h,totals", "oddsFormat": "american"}
-    response = requests.get(f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds", params=params)
-    data = response.json()
+    try:
+        params = {"apiKey": ODDS_API_KEY, "regions": "us", "markets": "h2h,totals", "oddsFormat": "american"}
+        response = requests.get(f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds", params=params)
+        data = response.json()
+    except Exception as e:
+        print(f"Odds API Fail: {e}")
+        return
 
     if not isinstance(data, list): 
-        print(f"Odds API Error Response: {data}")
+        print(f"Error Response: {data}")
         return
 
-    report = f"⚾ <b>MLB OMNI-REPORT v12.5: {datetime.now().strftime('%b %d')}</b>\n\n"
+    report = f"⚾ <b>MLB OMNI-REPORT v12.6: {datetime.now().strftime('%b %d')}</b>\n\n"
     game_count = 0
     for game in data:
         try:
@@ -173,16 +170,12 @@ def main():
             w_mult, w_desc = get_weather_impact(h_k, avg_k_pot)
             park_factor = STADIUM_DATA.get(h_k, {"factor": 1.0})['factor']
             
-            h_ctx, a_ctx = daily_pitchers.get(h_k, {"hand": "R", "rookie": False}), daily_pitchers.get(a_k, {"hand": "R", "rookie": False})
             h_b, a_b = bat_stats.get(h_k, {'wOBA': .31}), bat_stats.get(a_k, {'wOBA': .31})
 
             proj_base = (((h_p['FIP'] + a_p['FIP'])/2)*0.85 + (h_b['wOBA'] + a_b['wOBA'])*10.5) * w_mult * park_factor * BULLPEN_TAX * ABS_INFLATION
             
-            # Scenario Adjustments
-            if h_k in POWER_TEAMS: proj_base += (0.5 + (PLATOON_PENALTY if a_ctx['hand'] == "L" else 0))
-            if a_k in POWER_TEAMS: proj_base += (0.5 + (PLATOON_PENALTY if h_ctx['hand'] == "L" else 0))
-            proj_base += (EXPERIENCE_TAX if h_ctx['rookie'] else 0) + (EXPERIENCE_TAX if a_ctx['rookie'] else 0)
-            if is_sunday: proj_base += SUNDAY_LINEUP_TAX
+            if h_k in POWER_TEAMS: proj_base += 0.5
+            if a_k in POWER_TEAMS: proj_base += 0.5
 
             proj_full = round(proj_base, 1)
             nrfi = "STRONG" if (avg_k_pot - (park_factor * 0.15)) > 0.08 else "NEUTRAL"
@@ -195,9 +188,7 @@ def main():
     if game_count > 0 and TELEGRAM_TOKEN:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": report, "parse_mode": "HTML"})
-        print("Report sent to Telegram.")
-    else:
-        print("No games processed or Telegram token missing.")
+        print("Done.")
 
 if __name__ == "__main__":
     main()
