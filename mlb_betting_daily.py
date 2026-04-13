@@ -1,19 +1,19 @@
+import os
 import requests
 import pandas as pd
 from datetime import datetime
 import pybaseball as pyb
-import os  # Add this at the top
 
 # ========================= CONFIG & KEYS =========================
-# Use os.getenv to pull from GitHub Secrets, with your hardcoded ones as fallbacks
+# Prioritizes GitHub Secrets, falls back to hardcoded strings if running locally
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8216569304:AAFrWNUFtDFeUwS4TylFULp_ZkEvNakd8b8")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "8779455773")
 ODDS_API_KEY = os.getenv("ODDS_API_KEY", "4bdba5b98d90cc609eeadf39b1c0be2d")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY", "40b796258caa0b4933609f73c70860b9")
 
 # v12.1 LEAK-FIX CONSTANTS
-BULLPEN_TAX = 1.08        
-ABS_INFLATION = 1.02      
+BULLPEN_TAX = 1.08         
+ABS_INFLATION = 1.02       
 INDOOR_FLOOR = 1.03
 POWER_TEAMS = ["LAD", "ATL", "NYY"]
 EXPERIENCE_TAX = 0.4
@@ -22,35 +22,35 @@ SUNDAY_LINEUP_TAX = 0.02
 
 STADIUM_DATA = {
     "ARI": {"lat": 33.445, "lon": -112.067, "roof": "retractable", "factor": 1.01}, 
-    "ATL": {"lat": 33.891, "lon": -84.468, "roof": "open", "factor": 1.03},        
-    "BAL": {"lat": 39.284, "lon": -76.622, "roof": "open", "factor": 1.01},        
-    "BOS": {"lat": 42.346, "lon": -71.098, "roof": "open", "factor": 1.09},        
-    "CHC": {"lat": 41.948, "lon": -87.656, "roof": "open", "factor": 0.92},        
-    "CHW": {"lat": 41.830, "lon": -87.634, "roof": "open", "factor": 0.97},        
-    "CIN": {"lat": 39.097, "lon": -84.506, "roof": "open", "factor": 1.13},        
-    "CLE": {"lat": 41.496, "lon": -81.685, "roof": "open", "factor": 1.01},        
-    "COL": {"lat": 39.756, "lon": -104.994, "roof": "open", "factor": 1.34},       
-    "DET": {"lat": 42.339, "lon": -83.049, "roof": "open", "factor": 1.06},       
+    "ATL": {"lat": 33.891, "lon": -84.468, "roof": "open", "factor": 1.03},         
+    "BAL": {"lat": 39.284, "lon": -76.622, "roof": "open", "factor": 1.01},         
+    "BOS": {"lat": 42.346, "lon": -71.098, "roof": "open", "factor": 1.09},         
+    "CHC": {"lat": 41.948, "lon": -87.656, "roof": "open", "factor": 0.92},         
+    "CHW": {"lat": 41.830, "lon": -87.634, "roof": "open", "factor": 0.97},         
+    "CIN": {"lat": 39.097, "lon": -84.506, "roof": "open", "factor": 1.13},         
+    "CLE": {"lat": 41.496, "lon": -81.685, "roof": "open", "factor": 1.01},         
+    "COL": {"lat": 39.756, "lon": -104.994, "roof": "open", "factor": 1.34},        
+    "DET": {"lat": 42.339, "lon": -83.049, "roof": "open", "factor": 1.06},        
     "HOU": {"lat": 29.757, "lon": -95.356, "roof": "retractable", "factor": 1.01}, 
-    "KCR": {"lat": 39.052, "lon": -94.480, "roof": "open", "factor": 1.11},        
-    "LAA": {"lat": 33.800, "lon": -117.883, "roof": "open", "factor": 1.02},       
-    "LAD": {"lat": 34.074, "lon": -118.240, "roof": "open", "factor": 1.05},       
+    "KCR": {"lat": 39.052, "lon": -94.480, "roof": "open", "factor": 1.11},         
+    "LAA": {"lat": 33.800, "lon": -117.883, "roof": "open", "factor": 1.02},        
+    "LAD": {"lat": 34.074, "lon": -118.240, "roof": "open", "factor": 1.05},        
     "MIA": {"lat": 25.778, "lon": -80.220, "roof": "retractable", "factor": 1.06}, 
     "MIL": {"lat": 43.028, "lon": -87.971, "roof": "retractable", "factor": 1.01}, 
-    "MIN": {"lat": 44.982, "lon": -93.278, "roof": "open", "factor": 1.06},        
-    "NYM": {"lat": 40.757, "lon": -73.846, "roof": "open", "factor": 0.96},        
-    "NYY": {"lat": 40.830, "lon": -73.926, "roof": "open", "factor": 1.02},        
-    "OAK": {"lat": 38.581, "lon": -121.505, "roof": "open", "factor": 1.09},       
-    "PHI": {"lat": 39.906, "lon": -75.166, "roof": "open", "factor": 1.03},        
-    "PIT": {"lat": 40.447, "lon": -80.006, "roof": "open", "factor": 1.01},        
-    "SDP": {"lat": 32.708, "lon": -117.157, "roof": "open", "factor": 0.94},       
+    "MIN": {"lat": 44.982, "lon": -93.278, "roof": "open", "factor": 1.06},         
+    "NYM": {"lat": 40.757, "lon": -73.846, "roof": "open", "factor": 0.96},         
+    "NYY": {"lat": 40.830, "lon": -73.926, "roof": "open", "factor": 1.02},         
+    "OAK": {"lat": 38.581, "lon": -121.505, "roof": "open", "factor": 1.09},        
+    "PHI": {"lat": 39.906, "lon": -75.166, "roof": "open", "factor": 1.03},         
+    "PIT": {"lat": 40.447, "lon": -80.006, "roof": "open", "factor": 1.01},         
+    "SDP": {"lat": 32.708, "lon": -117.157, "roof": "open", "factor": 0.94},        
     "SEA": {"lat": 47.591, "lon": -122.332, "roof": "retractable", "factor": 0.81}, 
-    "SFG": {"lat": 37.778, "lon": -122.390, "roof": "open", "factor": 0.91},        
-    "STL": {"lat": 38.623, "lon": -90.193, "roof": "open", "factor": 0.97},        
-    "TBR": {"lat": 27.768, "lon": -82.653, "roof": "dome", "factor": 1.02},        
+    "SFG": {"lat": 37.778, "lon": -122.390, "roof": "open", "factor": 0.91},         
+    "STL": {"lat": 38.623, "lon": -90.193, "roof": "open", "factor": 0.97},         
+    "TBR": {"lat": 27.768, "lon": -82.653, "roof": "dome", "factor": 1.02},         
     "TEX": {"lat": 32.751, "lon": -97.083, "roof": "retractable", "factor": 1.00}, 
-    "TOR": {"lat": 43.641, "lon": -79.389, "roof": "retractable", "factor": 0.98},        
-    "WSN": {"lat": 38.873, "lon": -77.007, "roof": "open", "factor": 1.01}          
+    "TOR": {"lat": 43.641, "lon": -79.389, "roof": "retractable", "factor": 0.98},         
+    "WSN": {"lat": 38.873, "lon": -77.007, "roof": "open", "factor": 1.01}           
 }
 
 TEAM_MAP = {
@@ -71,6 +71,7 @@ TEAM_MAP = {
 
 def fetch_metrics():
     try:
+        # Note: Ensure the year (2025) matches the active season data available
         pit = pyb.pitching_stats(2025, qual=0)[['Team', 'FIP', 'K%', 'WHIP']]
         bat = pyb.batting_stats(2025, qual=0)[['Team', 'wOBA', 'K%']]
         return bat.groupby('Team').mean().to_dict('index'), pit.groupby('Team').mean().to_dict('index')
@@ -124,17 +125,22 @@ def main():
     bat_stats, pit_stats = fetch_metrics()
     daily_pitchers = get_daily_pitchers()
     is_sunday = datetime.now().weekday() == 6
-    if not bat_stats: return
+    if not bat_stats: 
+        print("Failed to fetch batting stats. Exiting.")
+        return
 
     params = {"apiKey": ODDS_API_KEY, "regions": "us", "markets": "h2h,totals", "oddsFormat": "american"}
     response = requests.get(f"https://api.the-odds-api.com/v4/sports/baseball_mlb/odds", params=params)
     data = response.json()
 
-    if not isinstance(data, list): return
+    if not isinstance(data, list): 
+        print(f"Odds API Error or No Data: {data}")
+        return
 
     report = f"⚾ <b>MLB OMNI-REPORT v12.1: {datetime.now().strftime('%b %d')}</b>\n"
     report += f"<i>Logic: Dynamic NRFI + ABS Stability</i>\n\n"
 
+    game_count = 0
     for game in data:
         try:
             h_f, a_f = game['home_team'], game['away_team']
@@ -194,12 +200,24 @@ def main():
             report += f"🌡️ {w_desc} | Proj: {proj_full} (F5: {proj_f5})\n"
             report += f"📈 ML: {ml_lean} | F5 ML: {f5_ml_lean}\n"
             report += f"🎯 NRFI: {nrfi} | Total: {total_action} | F5: {f5_action}\n\n"
+            game_count += 1
 
         except Exception as e:
+            print(f"Error processing game {game.get('home_team')}: {e}")
             continue
 
-    requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                  json={"chat_id": TELEGRAM_CHAT_ID, "text": report, "parse_mode": "HTML"})
+    if game_count > 0:
+        # Final Telegram Push
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": report, "parse_mode": "HTML"}
+        r = requests.post(url, json=payload)
+        
+        if r.status_code == 200:
+            print("Successfully sent report to Telegram.")
+        else:
+            print(f"Telegram API Error ({r.status_code}): {r.text}")
+    else:
+        print("No games processed. Report not sent.")
 
 if __name__ == "__main__":
     main()
