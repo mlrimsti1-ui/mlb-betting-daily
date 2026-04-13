@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 from datetime import datetime
 import pybaseball as pyb
+from pybaseball import statcast_pitcher_exit_velocity_barrels, statcast_batter_exit_velocity_barrels
 
 # ========================= CONFIG & KEYS =========================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8216569304:AAFrWNUFtDFeUwS4TylFULp_ZkEvNakd8b8")
@@ -10,7 +11,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "8779455773")
 ODDS_API_KEY = os.getenv("ODDS_API_KEY", "4bdba5b98d90cc609eeadf39b1c0be2d")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY", "40b796258caa0b4933609f73c70860b9")
 
-# v12.1 LEAK-FIX CONSTANTS
+# v12.2 STABILITY CONSTANTS
 BULLPEN_TAX = 1.08         
 ABS_INFLATION = 1.02       
 INDOOR_FLOOR = 1.03
@@ -69,23 +70,36 @@ TEAM_MAP = {
 # ========================= ENGINES =========================
 
 def fetch_metrics():
-    # Attempt to bypass 403 by setting a global User-Agent for the session
-    import pybaseball.utils as utils
-    
-    # We try current year first, then fall back to previous year
     current_year = datetime.now().year
     years_to_try = [current_year, current_year - 1]
     
     for year in years_to_try:
         try:
-            print(f"Attempting to fetch {year} stats...")
-            pit = pyb.pitching_stats(year, qual=0)[['Team', 'FIP', 'K%', 'WHIP']]
-            bat = pyb.batting_stats(year, qual=0)[['Team', 'wOBA', 'K%']]
+            print(f"Attempting Statcast fetch for {year}...")
+            # statcast functions hit MLB servers directly, bypassing FanGraphs blocks
+            bat_raw = statcast_batter_exit_velocity_barrels(year, minBBE=0)
+            pit_raw = statcast_pitcher_exit_velocity_barrels(year, minBBE=0)
             
-            print(f"Successfully retrieved {year} data.")
-            return bat.groupby('Team').mean().to_dict('index'), pit.groupby('Team').mean().to_dict('index')
+            if bat_raw.empty or pit_raw.empty:
+                print(f"Data empty for {year}, trying next...")
+                continue
+
+            # Process Batting: Need 'team', 'woba'
+            bat_df = bat_raw[['team', 'woba']].copy()
+            bat_df.columns = ['Team', 'wOBA']
+            # Statcast team names are upper case codes (e.g., 'NYY')
+            
+            # Process Pitching: Need 'team', 'fip', 'k_percent'
+            pit_df = pit_raw[['team', 'fip', 'k_percent']].copy()
+            pit_df.columns = ['Team', 'FIP', 'K%']
+            # Convert K% from whole number (25.0) to decimal (0.25)
+            pit_df['K%'] = pit_df['K%'] / 100
+
+            print(f"Successfully retrieved {year} Statcast data.")
+            return bat_df.groupby('Team').mean().to_dict('index'), pit_df.groupby('Team').mean().to_dict('index')
+            
         except Exception as e:
-            print(f"Failed to fetch {year} stats: {e}")
+            print(f"Statcast fetch failed for {year}: {e}")
             continue
             
     return None, None
@@ -138,7 +152,7 @@ def main():
     is_sunday = datetime.now().weekday() == 6
     
     if not bat_stats or not pit_stats: 
-        print("CRITICAL ERROR: Could not retrieve stats from any year. Exiting.")
+        print("CRITICAL ERROR: No metrics available. Exiting.")
         return
 
     params = {"apiKey": ODDS_API_KEY, "regions": "us", "markets": "h2h,totals", "oddsFormat": "american"}
@@ -146,11 +160,11 @@ def main():
     data = response.json()
 
     if not isinstance(data, list): 
-        print(f"Odds API returned non-list response: {data}")
+        print(f"Odds API Error: {data}")
         return
 
-    report = f"⚾ <b>MLB OMNI-REPORT v12.1: {datetime.now().strftime('%b %d')}</b>\n"
-    report += f"<i>Logic: Dynamic NRFI + ABS Stability</i>\n\n"
+    report = f"⚾ <b>MLB OMNI-REPORT v12.2: {datetime.now().strftime('%b %d')}</b>\n"
+    report += f"<i>Source: Statcast Resilience Mode</i>\n\n"
 
     game_count = 0
     for game in data:
@@ -159,7 +173,9 @@ def main():
             h_k, a_k = TEAM_MAP.get(h_f), TEAM_MAP.get(a_f)
             if not h_k or not a_k: continue
 
-            h_p, a_p = pit_stats.get(h_k, {'FIP': 4.1, 'K%': .22}), pit_stats.get(a_k, {'FIP': 4.1, 'K%': .22})
+            # Statcast uses upper-case codes, ensure match
+            h_p = pit_stats.get(h_k, {'FIP': 4.1, 'K%': .22})
+            a_p = pit_stats.get(a_k, {'FIP': 4.1, 'K%': .22})
             avg_k_pot = (h_p['K%'] + a_p['K%']) / 2
             
             w_mult, w_desc = get_weather_impact(h_k, avg_k_pot)
@@ -168,7 +184,8 @@ def main():
             
             h_ctx = daily_pitchers.get(h_k, {"hand": "R", "rookie": False})
             a_ctx = daily_pitchers.get(a_k, {"hand": "R", "rookie": False})
-            h_b, a_b = bat_stats.get(h_k, {'wOBA': .31, 'K%': .22}), bat_stats.get(a_k, {'wOBA': .31, 'K%': .22})
+            h_b = bat_stats.get(h_k, {'wOBA': .31})
+            a_b = bat_stats.get(a_k, {'wOBA': .31})
 
             proj_base = (((h_p['FIP'] + a_p['FIP'])/2)*0.85 + (h_b['wOBA'] + a_b['wOBA'])*10.5) * \
                         w_mult * park_factor * BULLPEN_TAX * ABS_INFLATION
@@ -185,7 +202,7 @@ def main():
             proj_full = round(proj_base, 1)
             proj_f5 = round(proj_base * 0.52, 1)
 
-            # --- v12.1 DYNAMIC NRFI LOGIC ---
+            # --- NRFI LOGIC ---
             nrfi_score = avg_k_pot - (park_factor * 0.15)
             if nrfi_score > 0.08:
                 nrfi = "STRONG"
@@ -195,8 +212,7 @@ def main():
                 nrfi = "NEUTRAL"
 
             ml_lean = h_f if h_p['FIP'] < a_p['FIP'] - 0.4 else a_f if a_p['FIP'] < h_p['FIP'] - 0.4 else "TOSS-UP"
-            f5_ml_lean = h_f if h_p['FIP'] < a_p['FIP'] else a_f
-
+            
             total_action, f5_action = "Neutral", "Neutral"
             bookies = game.get('bookmakers', [])
             if bookies:
@@ -210,8 +226,8 @@ def main():
 
             report += f"<b>{a_f} @ {h_f}</b>\n"
             report += f"🌡️ {w_desc} | Proj: {proj_full} (F5: {proj_f5})\n"
-            report += f"📈 ML: {ml_lean} | F5 ML: {f5_ml_lean}\n"
-            report += f"🎯 NRFI: {nrfi} | Total: {total_action} | F5: {f5_action}\n\n"
+            report += f"📈 ML: {ml_lean} | NRFI: {nrfi}\n"
+            report += f"🎯 Total: {total_action} | F5: {f5_action}\n\n"
             game_count += 1
 
         except Exception as e:
@@ -223,7 +239,7 @@ def main():
         r = requests.post(url, json=payload)
         print(f"Telegram status: {r.status_code}")
     else:
-        print("No eligible games found to report.")
+        print("No games found today.")
 
 if __name__ == "__main__":
     main()
